@@ -1,0 +1,14 @@
+{
+  "name": "hsi-sales-ai-platform",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "db:migrate": "cd backend && npx prisma migrate dev",
+    "db:seed": "cd backend && npm run seed",
+    "db:studio": "cd backend && npm run prisma:studio"
+  }
+}

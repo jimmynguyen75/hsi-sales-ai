@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 font-sans antialiased;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded;
+}
+
+/* Markdown prose overrides */
+.prose-hsi {
+  @apply text-sm leading-relaxed;
+}
+.prose-hsi h1,
+.prose-hsi h2,
+.prose-hsi h3 {
+  @apply font-semibold mt-3 mb-2;
+}
+.prose-hsi ul {
+  @apply list-disc ml-5 my-2;
+}
+.prose-hsi ol {
+  @apply list-decimal ml-5 my-2;
+}
+.prose-hsi code {
+  @apply px-1 bg-slate-100 rounded text-xs;
+}
+.prose-hsi p {
+  @apply my-2;
+}
