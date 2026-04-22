@@ -10,6 +10,8 @@ import {
   Users,
   AlertTriangle,
   Lightbulb,
+  UserPlus,
+  Plus,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Account, HealthResult } from "@/lib/types";
@@ -139,9 +141,6 @@ export function AccountDetail() {
             <ActivityIcon className="h-3.5 w-3.5" />
             Đánh giá health
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setActOpen(true)}>
-            + Activity
-          </Button>
         </div>
 
         {aiError && (
@@ -205,6 +204,17 @@ export function AccountDetail() {
         {/* Tab content */}
         {tab === "timeline" && (
           <div className="space-y-2">
+            <TabHeader
+              icon={<ActivityIcon className="h-4 w-4 text-slate-400" />}
+              title="Hoạt động"
+              subtitle="Ghi chú, cuộc gọi, email, meeting, follow-up"
+              action={
+                <Button size="sm" onClick={() => setActOpen(true)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  Ghi nhận activity
+                </Button>
+              }
+            />
             {(account.activities ?? []).length === 0 && (
               <Card>
                 <CardBody className="text-sm text-slate-500">Chưa có hoạt động nào.</CardBody>
@@ -241,11 +251,17 @@ export function AccountDetail() {
 
         {tab === "contacts" && (
           <div className="space-y-2">
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => setContactOpen(true)}>
-                + Contact
-              </Button>
-            </div>
+            <TabHeader
+              icon={<Users className="h-4 w-4 text-slate-400" />}
+              title="Danh bạ"
+              subtitle="Người liên hệ tại khách hàng"
+              action={
+                <Button size="sm" onClick={() => setContactOpen(true)}>
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Thêm contact
+                </Button>
+              }
+            />
             <Card>
               <CardBody className="p-0">
               {(account.contacts ?? []).length === 0 ? (
@@ -284,11 +300,17 @@ export function AccountDetail() {
 
         {tab === "deals" && (
           <div className="space-y-2">
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => setDealOpen(true)}>
-                + Deal
-              </Button>
-            </div>
+            <TabHeader
+              icon={<Briefcase className="h-4 w-4 text-slate-400" />}
+              title="Cơ hội bán hàng"
+              subtitle="Deal thuộc pipeline của account này"
+              action={
+                <Button size="sm" onClick={() => setDealOpen(true)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  Tạo deal mới
+                </Button>
+              }
+            />
             <div className="grid gap-3 md:grid-cols-2">
             {(account.deals ?? []).length === 0 && (
               <Card>
@@ -329,10 +351,26 @@ export function AccountDetail() {
 
         {tab === "insights" && (
           <div className="space-y-2">
+            <TabHeader
+              icon={<Sparkles className="h-4 w-4 text-slate-400" />}
+              title="AI Insights"
+              subtitle="Gợi ý & cảnh báo tạo bởi AI"
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={nextActionMut.isPending}
+                  onClick={() => nextActionMut.mutate()}
+                >
+                  <Lightbulb className="h-3.5 w-3.5" />
+                  Sinh insight mới
+                </Button>
+              }
+            />
             {(account.insights ?? []).length === 0 && (
               <Card>
                 <CardBody className="text-sm text-slate-500">
-                  Chưa có insight nào. Bấm "Gợi ý next action" ở trên để AI generate.
+                  Chưa có insight nào. Bấm "Sinh insight mới" để AI generate.
                 </CardBody>
               </Card>
             )}
@@ -389,6 +427,42 @@ export function AccountDetail() {
           qc.invalidateQueries({ queryKey: ["deals"] });
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * TabHeader — consistent header row used at the top of every tab content area.
+ *
+ * Left side: small muted icon + title (big) + subtitle (small, muted).
+ * Right side: primary action (e.g. "Thêm contact", "Tạo deal mới").
+ * Without this, per-tab add buttons feel like disconnected floating controls.
+ */
+function TabHeader({
+  icon,
+  title,
+  subtitle,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 pt-1">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-slate-100">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-800 leading-tight">{title}</div>
+          {subtitle && (
+            <div className="text-[11px] text-slate-500 leading-tight truncate">{subtitle}</div>
+          )}
+        </div>
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }

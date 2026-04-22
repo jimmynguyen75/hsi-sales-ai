@@ -5,6 +5,7 @@ import { LoginPage } from "@/pages/Login";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { AccountList } from "@/modules/crm/AccountList";
 import { AccountDetail } from "@/modules/crm/AccountDetail";
+import { PipelineView } from "@/modules/pipeline/PipelineView";
 import { MeetingList } from "@/modules/meetings/MeetingList";
 import { MeetingDetail } from "@/modules/meetings/MeetingDetail";
 import { ActionBoard } from "@/modules/meetings/ActionBoard";
@@ -63,6 +64,7 @@ export default function App() {
           <Route index element={<Navigate to="/crm" replace />} />
           <Route path="crm" element={<AccountList />} />
           <Route path="crm/:id" element={<AccountDetail />} />
+          <Route path="pipeline" element={<PipelineView />} />
           <Route path="health-dashboard" element={<HealthDashboard />} />
           <Route path="meetings" element={<MeetingList />} />
           <Route path="meetings/actions" element={<ActionBoard />} />

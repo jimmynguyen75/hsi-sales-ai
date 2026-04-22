@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   Users,
   Activity,
+  Briefcase,
   FileText,
   FileSpreadsheet,
   FilePlus,
@@ -49,6 +50,7 @@ const groups: NavGroup[] = [
     title: "Khách hàng & Pipeline",
     items: [
       { to: "/crm", label: "Smart CRM", icon: Users },
+      { to: "/pipeline", label: "Sales Pipeline", icon: Briefcase },
       { to: "/health-dashboard", label: "Account Health", icon: Activity },
       { to: "/meetings", label: "Meeting Notes", icon: FileText },
     ],
