@@ -2,15 +2,14 @@
 
 Unified internal web platform for the HSI (Hybrid Solutions & Infrastructure) sales team at HPT Vietnam. 13 AI-powered modules spanning CRM, proposals, competitive intel, reporting, and more.
 
-> **Status**: Phase 1 complete — shared infrastructure + Module 1 (Smart CRM Assistant).
-
 ## Stack
 
 - **Frontend**: React 18, Vite, TypeScript, Tailwind, shadcn-style UI, React Router, TanStack Query
 - **Backend**: Node 20, Express, TypeScript, Prisma
 - **DB**: PostgreSQL 16
 - **AI**: Groq (`llama-3.3-70b-versatile` by default) via `groq-sdk`
-- **Auth**: JWT
+- **Embeddings**: local ONNX MiniLM via `@xenova/transformers` (no API key needed)
+- **Auth**: JWT, role-based (sales / manager / admin)
 
 ## Quick start (Docker)
 
@@ -21,10 +20,13 @@ docker compose up -d --build
 # Backend auto-runs migrations + seed on first boot
 ```
 
-Open http://localhost:5173. Demo login:
+Open http://localhost:5173. Demo logins:
 
-- Email: `jimmy@hpt.vn`
-- Password: `demo1234`
+| Email            | Password   | Role    |
+| ---------------- | ---------- | ------- |
+| `jimmy@hpt.vn`   | `demo1234` | sales   |
+| `manager@hpt.vn` | `demo1234` | manager |
+| `admin@hpt.vn`   | `demo1234` | admin   |
 
 ## Quick start (local)
 
@@ -36,16 +38,36 @@ docker compose up -d postgres
 cd backend
 cp ../.env.example .env
 npm install
-npx prisma migrate dev --name init
+npx prisma migrate dev
 npm run seed
-npm run dev           # http://localhost:3001
+npm run dev           # http://localhost:3002
 
 # 3. Frontend (another terminal)
 cd frontend
 npm install
-echo "VITE_API_URL=http://localhost:3001/api" > .env
+echo "VITE_API_URL=http://localhost:3002/api" > .env
 npm run dev           # http://localhost:5173
 ```
+
+## Modules
+
+| #  | Module                    | Route                  |
+| -- | ------------------------- | ---------------------- |
+| 1  | Smart CRM Assistant       | `/crm`                 |
+| 2  | Account Health Dashboard  | `/health`              |
+| 3  | Meeting Notes             | `/meetings`            |
+| 4  | Proposal Generator        | `/proposals`           |
+| 5  | Quotation Builder         | `/quotations`          |
+| 6  | RFP Response              | `/rfp`                 |
+| 7  | Competitor Intel          | `/competitors`         |
+| 8  | Market Sizing             | `/market`              |
+| 9  | Sales Email Composer      | `/emails`              |
+| 10 | Knowledge Chatbot         | `/chat`                |
+| 11 | Daily Briefing            | `/briefing`            |
+| 12 | Sales Reports             | `/reports`             |
+| 13 | Win/Loss Analysis         | `/win-loss`            |
+
+Admin-only screens: `/admin/users` (user management) and `/admin/audit` (audit log viewer).
 
 ## Project structure
 
@@ -53,22 +75,25 @@ npm run dev           # http://localhost:5173
 hsi-sales-ai/
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma       # Shared schema for all modules
-│   │   └── seed.ts             # Demo accounts, deals, activities
+│   │   ├── schema.prisma       # shared schema for all modules
+│   │   └── seed.ts             # demo users, accounts, deals, activities
 │   └── src/
 │       ├── lib/
-│       │   ├── claude.ts       # AI Service Layer (shared across modules)
+│       │   ├── ai.ts           # AI Service Layer (Groq wrapper)
+│       │   ├── logger.ts       # structured NDJSON logger
 │       │   ├── prisma.ts
 │       │   └── response.ts
-│       ├── middleware/         # auth, error
-│       ├── routes/             # auth, accounts, contacts, deals, activities
-│       ├── services/           # crm-ai (Module 1 AI prompts)
+│       ├── middleware/         # auth, rbac, request-context, error
+│       ├── routes/             # one file per module + auth/users/audit/import/sys-health
+│       ├── services/           # *-ai.ts per module + csv-import, embeddings, audit, email-send, document-export
 │       └── index.ts
 ├── frontend/
 │   └── src/
-│       ├── components/ui/      # Button, Input, Card, Badge
-│       ├── layouts/Shell.tsx   # Sidebar + top bar
-│       ├── modules/crm/        # Module 1 UI
+│       ├── components/         # shared UI (BulkImportDialog, Toast, ...)
+│       ├── components/ui/      # Button, Input, Card, Badge, ...
+│       ├── layouts/Shell.tsx   # role-filtered sidebar
+│       ├── modules/            # one folder per module (crm, proposals, quotations, rfp, ...)
+│       ├── modules/admin/      # UserAdmin, AuditLog
 │       ├── pages/              # Login, ComingSoon
 │       ├── hooks/useAuth.tsx
 │       └── lib/                # api, types, format, cn
@@ -87,79 +112,40 @@ All modules call the model through `backend/src/lib/ai.ts`:
 
 Every call is logged to the `AILog` table (tokens in/out, latency). Rate-limited to 10 req/min per user.
 
-## Module 1 — Smart CRM Assistant
+## Cross-cutting capabilities
 
-Routes live at `/crm` in the frontend:
-
-- **List**: filter by industry/health/size, sort on company/health/updated, quick-stats panel
-- **Detail**: header with animated health gauge, tabs for Timeline / Contacts / Deals / AI Insights
-- **AI Actions**: one-click summary, next-action suggestions, health assessment (0-100 with factor breakdown)
-- **AI Chat sidebar**: conversational Q&A scoped to the account (preset prompts + free-form)
-
-### API
-
-```
-POST   /api/auth/login
-POST   /api/auth/register
-GET    /api/auth/me
-
-GET    /api/accounts?q=&industry=&minHealth=&maxHealth=&size=
-POST   /api/accounts
-GET    /api/accounts/:id          # with contacts, deals, activities, insights
-PUT    /api/accounts/:id
-DELETE /api/accounts/:id
-GET    /api/accounts/:id/timeline
-
-POST   /api/accounts/:id/ai/summary
-POST   /api/accounts/:id/ai/next-action   # also persists as CRMInsight
-POST   /api/accounts/:id/ai/health        # updates account.healthScore
-POST   /api/accounts/:id/ai/chat          # body: { message }
-
-GET    /api/contacts?accountId=
-POST   /api/contacts
-PUT    /api/contacts/:id
-DELETE /api/contacts/:id
-
-GET    /api/deals?accountId=&stage=&vendor=
-POST   /api/deals
-PUT    /api/deals/:id
-DELETE /api/deals/:id
-
-GET    /api/activities?accountId=&dealId=
-POST   /api/activities
-PUT    /api/activities/:id
-DELETE /api/activities/:id
-```
-
-## Roadmap — remaining phases
-
-The Prisma schema already includes Meeting/ActionItem tables so Phase 2 can reuse them.
-
-| Phase | Modules                                                                     |
-| ----- | --------------------------------------------------------------------------- |
-| 2     | Meeting Notes (M3), Sales Email Composer (M9), Daily Briefing (M11)         |
-| 3     | Proposal Generator (M4), Quotation Builder (M5), RFP Response (M6)          |
-| 4     | Account Health Dashboard (M2), Competitor Intel (M7), Market Sizing (M8)    |
-| 5     | Knowledge Chatbot (M10), Sales Reports (M12), Win/Loss Analysis (M13)       |
-
-All future modules plug into the same AI Service Layer, shell, and auth — no architectural changes needed.
+- **RBAC** — `requireRole("manager", "admin")` middleware; `ownerId` guards on per-user data (sales see only their own accounts/deals; managers & admins see all).
+- **Audit log** — every mutation on deals / quotations / proposals / emails / imports is written to `AuditLog` with denormalized user email + role. Viewer at `/admin/audit` (admin-only).
+- **Bulk CSV import** — `/api/import/accounts` and `/api/import/products` with two-step flow (dry-run preview → commit). Reusable `BulkImportDialog` component, sample CSV downloads at `/api/import/sample/*.csv`.
+- **Observability** — every request gets an `X-Request-Id` (echoed in response header and included in error bodies). Structured NDJSON logs with auto-propagated `requestId` + `userId` via AsyncLocalStorage. `GET /api/health` reports DB / AI / SMTP / embedding / uptime.
+- **Exports** — proposals and quotations export to PDF via pdfkit and DOCX via docx.
+- **Email send** — SMTP via nodemailer (any provider); falls back to drafts if SMTP not configured.
+- **Vector RAG** — local MiniLM embeddings power semantic search for the Knowledge Chatbot (M10) over product catalog + competitor intel.
 
 ## Conventions
 
-- **API response shape**: `{ success: boolean, data?, error?, meta? }`
+- **API response shape**: `{ success: boolean, data?, error?, requestId?, meta? }`
 - **AI calls**: always go through `backend/src/lib/ai.ts`, never call `groq-sdk` directly from routes
 - **Validation**: Zod schemas at route boundaries
 - **Error handling**: custom `AppError`, global error middleware
 - **Timezone**: `Asia/Ho_Chi_Minh`, dates via `vi-VN` locale
+- **UI language**: Vietnamese by default
 
 ## Environment variables
 
-| Var              | Required | Default                       |
-| ---------------- | -------- | ----------------------------- |
-| `GROQ_API_KEY`   | yes      | —                             |
-| `DATABASE_URL`   | yes      | compose sets it               |
-| `JWT_SECRET`     | yes      | —                             |
-| `GROQ_MODEL`     | no       | `llama-3.3-70b-versatile`     |
-| `PORT`           | no       | `3001`                        |
-| `FRONTEND_URL`   | no       | `http://localhost:5173`       |
-| `VITE_API_URL`   | no       | `http://localhost:3001/api`   |
+| Var              | Required | Default                       | Notes                                              |
+| ---------------- | -------- | ----------------------------- | -------------------------------------------------- |
+| `GROQ_API_KEY`   | yes      | —                             | https://console.groq.com/keys                      |
+| `DATABASE_URL`   | yes      | compose sets it               | Postgres                                           |
+| `JWT_SECRET`     | yes      | —                             | any strong random string                           |
+| `GROQ_MODEL`     | no       | `llama-3.3-70b-versatile`     |                                                    |
+| `PORT`           | no       | `3002`                        | backend HTTP port                                  |
+| `FRONTEND_URL`   | no       | `http://localhost:5173`       | CORS origin                                        |
+| `VITE_API_URL`   | no       | `http://localhost:3002/api`   | frontend → backend                                 |
+| `LOG_LEVEL`      | no       | `info`                        | `debug` \| `info` \| `warn` \| `error`             |
+| `APP_VERSION`    | no       | `dev`                         | surfaced by `/api/health`                          |
+| `SMTP_HOST`      | no       | —                             | enables real email send; otherwise drafts only     |
+| `SMTP_PORT`      | no       | `587`                         |                                                    |
+| `SMTP_USER`      | no       | —                             |                                                    |
+| `SMTP_PASS`      | no       | —                             |                                                    |
+| `SMTP_FROM`      | no       | `SMTP_USER`                   | From: address                                      |
