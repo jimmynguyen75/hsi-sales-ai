@@ -20,6 +20,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AIChatSidebar } from "./AIChatSidebar";
 import { AddActivityDialog } from "./AddActivityDialog";
+import { NewContactDialog } from "./NewContactDialog";
+import { NewDealDialog } from "./NewDealDialog";
 
 type Tab = "timeline" | "contacts" | "deals" | "insights";
 
@@ -29,6 +31,8 @@ export function AccountDetail() {
   const [tab, setTab] = useState<Tab>("timeline");
   const [chatOpen, setChatOpen] = useState(false);
   const [actOpen, setActOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [dealOpen, setDealOpen] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiNextAction, setAiNextAction] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<HealthResult | null>(null);
@@ -236,8 +240,14 @@ export function AccountDetail() {
         )}
 
         {tab === "contacts" && (
-          <Card>
-            <CardBody className="p-0">
+          <div className="space-y-2">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setContactOpen(true)}>
+                + Contact
+              </Button>
+            </div>
+            <Card>
+              <CardBody className="p-0">
               {(account.contacts ?? []).length === 0 ? (
                 <div className="p-5 text-sm text-slate-500">Chưa có contact nào.</div>
               ) : (
@@ -267,12 +277,19 @@ export function AccountDetail() {
                   </tbody>
                 </table>
               )}
-            </CardBody>
-          </Card>
+              </CardBody>
+            </Card>
+          </div>
         )}
 
         {tab === "deals" && (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setDealOpen(true)}>
+                + Deal
+              </Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
             {(account.deals ?? []).length === 0 && (
               <Card>
                 <CardBody className="text-sm text-slate-500">Chưa có deal nào.</CardBody>
@@ -306,6 +323,7 @@ export function AccountDetail() {
                 </CardBody>
               </Card>
             ))}
+            </div>
           </div>
         )}
 
@@ -352,6 +370,24 @@ export function AccountDetail() {
         accountId={account.id}
         onClose={() => setActOpen(false)}
         onCreated={() => qc.invalidateQueries({ queryKey: ["account", id] })}
+      />
+
+      <NewContactDialog
+        open={contactOpen}
+        accountId={account.id}
+        onClose={() => setContactOpen(false)}
+        onCreated={() => qc.invalidateQueries({ queryKey: ["account", id] })}
+      />
+
+      <NewDealDialog
+        open={dealOpen}
+        accountId={account.id}
+        onClose={() => setDealOpen(false)}
+        onCreated={() => {
+          qc.invalidateQueries({ queryKey: ["account", id] });
+          // Also refresh the global deals list (used by pipeline view / dashboards).
+          qc.invalidateQueries({ queryKey: ["deals"] });
+        }}
       />
     </div>
   );
