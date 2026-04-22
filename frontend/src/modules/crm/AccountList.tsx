@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { formatVND, relativeTime, healthColor, healthLabel } from "@/lib/format";
-import { NewAccountDialog } from "./NewAccountDialog";
+import { AccountDialog } from "./AccountDialog";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
 
 type SortKey = "companyName" | "healthScore" | "updatedAt";
@@ -232,7 +232,7 @@ export function AccountList() {
       {/* Dummy VND for tree-shake guard (referenced below if deals present) */}
       <span className="hidden">{formatVND(0)}</span>
 
-      <NewAccountDialog open={newOpen} onClose={() => setNewOpen(false)} onCreated={() => refetch()} />
+      <AccountDialog open={newOpen} onClose={() => setNewOpen(false)} onSaved={() => refetch()} />
 
       {importOpen && (
         <BulkImportDialog

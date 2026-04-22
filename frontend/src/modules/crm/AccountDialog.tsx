@@ -1,27 +1,56 @@
-import { useState } from "react";
+/**
+ * AccountDialog — create OR edit an account.
+ *
+ * Edit mode: PUT /api/accounts/:id (RBAC: owner or manager+).
+ * Create mode: POST /api/accounts.
+ *
+ * Delete is not in this dialog — it's admin-only and wired into
+ * AccountDetail's header.
+ */
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import type { Account } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 
-export function NewAccountDialog({
-  open,
-  onClose,
-  onCreated,
-}: {
+interface Props {
   open: boolean;
+  account?: Account | null;
   onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [form, setForm] = useState({
-    companyName: "",
-    industry: "",
-    size: "",
-    website: "",
-    address: "",
-    notes: "",
-  });
+  onSaved: () => void;
+}
+
+const EMPTY = {
+  companyName: "",
+  industry: "",
+  size: "",
+  website: "",
+  address: "",
+  notes: "",
+};
+
+export function AccountDialog({ open, account, onClose, onSaved }: Props) {
+  const editing = !!account;
+  const [form, setForm] = useState(EMPTY);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (account) {
+      setForm({
+        companyName: account.companyName ?? "",
+        industry: account.industry ?? "",
+        size: account.size ?? "",
+        website: account.website ?? "",
+        address: account.address ?? "",
+        notes: account.notes ?? "",
+      });
+    } else {
+      setForm(EMPTY);
+    }
+    setErr(null);
+  }, [open, account]);
 
   if (!open) return null;
 
@@ -30,10 +59,13 @@ export function NewAccountDialog({
     setErr(null);
     setLoading(true);
     try {
-      await api.post("/accounts", form);
-      onCreated();
+      if (editing && account) {
+        await api.put(`/accounts/${account.id}`, form);
+      } else {
+        await api.post("/accounts", form);
+      }
+      onSaved();
       onClose();
-      setForm({ companyName: "", industry: "", size: "", website: "", address: "", notes: "" });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -45,7 +77,9 @@ export function NewAccountDialog({
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold">Thêm account mới</h2>
+          <h2 className="text-sm font-semibold">
+            {editing ? "Sửa account" : "Thêm account mới"}
+          </h2>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
             ✕
           </button>
@@ -57,6 +91,7 @@ export function NewAccountDialog({
               value={form.companyName}
               onChange={(e) => setForm({ ...form, companyName: e.target.value })}
               required
+              autoFocus
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -105,13 +140,15 @@ export function NewAccountDialog({
               rows={3}
             />
           </div>
-          {err && <div className="rounded bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+          {err && (
+            <div className="rounded bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>
+          )}
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onClose}>
               Hủy
             </Button>
-            <Button type="submit" loading={loading}>
-              Tạo
+            <Button type="submit" loading={loading} disabled={!form.companyName.trim()}>
+              {editing ? "Lưu thay đổi" : "Tạo"}
             </Button>
           </div>
         </form>

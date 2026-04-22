@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -12,29 +12,49 @@ import {
   Lightbulb,
   UserPlus,
   Plus,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Account, HealthResult } from "@/lib/types";
+import type { Account, Activity as ActivityT, Contact, Deal, HealthResult } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { formatVND, formatDate, relativeTime, healthColor, healthLabel, stageColor } from "@/lib/format";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AIChatSidebar } from "./AIChatSidebar";
-import { AddActivityDialog } from "./AddActivityDialog";
-import { NewContactDialog } from "./NewContactDialog";
-import { NewDealDialog } from "./NewDealDialog";
+import { ActivityDialog } from "./ActivityDialog";
+import { ContactDialog } from "./ContactDialog";
+import { DealDialog } from "./DealDialog";
+import { AccountDialog } from "./AccountDialog";
 
 type Tab = "timeline" | "contacts" | "deals" | "insights";
 
 export function AccountDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const qc = useQueryClient();
+  const nav = useNavigate();
   const [tab, setTab] = useState<Tab>("timeline");
   const [chatOpen, setChatOpen] = useState(false);
-  const [actOpen, setActOpen] = useState(false);
-  const [contactOpen, setContactOpen] = useState(false);
-  const [dealOpen, setDealOpen] = useState(false);
+
+  // Dialog states — each can hold either `null` (closed / not editing) or an
+  // entity (edit mode) or `{}` sentinel for "open in create mode".
+  const [actDialog, setActDialog] = useState<{ open: boolean; editing: ActivityT | null }>({
+    open: false,
+    editing: null,
+  });
+  const [contactDialog, setContactDialog] = useState<{ open: boolean; editing: Contact | null }>({
+    open: false,
+    editing: null,
+  });
+  const [dealDialog, setDealDialog] = useState<{ open: boolean; editing: Deal | null }>({
+    open: false,
+    editing: null,
+  });
+  const [accountDialog, setAccountDialog] = useState(false);
+
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiNextAction, setAiNextAction] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<HealthResult | null>(null);
@@ -64,12 +84,39 @@ export function AccountDetail() {
     },
   });
 
+  // --- Delete mutations ---
+  const delContact = useMutation({
+    mutationFn: (cid: string) => api.del(`/contacts/${cid}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["account", id] }),
+  });
+  const delDeal = useMutation({
+    mutationFn: (did: string) => api.del(`/deals/${did}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["account", id] });
+      qc.invalidateQueries({ queryKey: ["deals"] });
+    },
+  });
+  const delActivity = useMutation({
+    mutationFn: (aid: string) => api.del(`/activities/${aid}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["account", id] }),
+  });
+  const delAccount = useMutation({
+    mutationFn: () => api.del(`/accounts/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      nav("/crm");
+    },
+  });
+
   if (isLoading || !account) {
     return <div className="p-8 text-sm text-slate-500">Đang tải...</div>;
   }
 
-  const aiError =
-    summaryMut.error || nextActionMut.error || healthMut.error;
+  const aiError = summaryMut.error || nextActionMut.error || healthMut.error;
+  const canEditAccount =
+    user?.role === "admin" || user?.role === "manager" || account.ownerId === user?.id;
+  const canDeleteAccount = user?.role === "admin";
+  const canDeleteDeal = user?.role === "admin" || user?.role === "manager";
 
   return (
     <div className="flex h-full">
@@ -104,10 +151,36 @@ export function AccountDetail() {
             </div>
             <div className="flex flex-col items-end gap-2">
               <HealthGauge score={account.healthScore} />
-              <Button variant="outline" size="sm" onClick={() => setChatOpen((v) => !v)}>
-                <MessageCircle className="h-3.5 w-3.5" />
-                AI Chat
-              </Button>
+              <div className="flex gap-1.5">
+                {canEditAccount && (
+                  <Button variant="outline" size="sm" onClick={() => setAccountDialog(true)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                    Sửa
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setChatOpen((v) => !v)}>
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  AI Chat
+                </Button>
+                {canDeleteAccount && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Xoá "${account.companyName}"? Hành động này sẽ xoá cả contacts, deals, activities thuộc account.`,
+                        )
+                      ) {
+                        delAccount.mutate();
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                    Xoá
+                  </Button>
+                )}
+              </div>
             </div>
           </CardBody>
         </Card>
@@ -209,7 +282,7 @@ export function AccountDetail() {
               title="Hoạt động"
               subtitle="Ghi chú, cuộc gọi, email, meeting, follow-up"
               action={
-                <Button size="sm" onClick={() => setActOpen(true)}>
+                <Button size="sm" onClick={() => setActDialog({ open: true, editing: null })}>
                   <Plus className="h-3.5 w-3.5" />
                   Ghi nhận activity
                 </Button>
@@ -243,6 +316,12 @@ export function AccountDetail() {
                     )}
                     <div className="mt-1 text-[11px] text-slate-400">{relativeTime(a.createdAt)}</div>
                   </div>
+                  <RowActions
+                    onEdit={() => setActDialog({ open: true, editing: a })}
+                    onDelete={() => {
+                      if (confirm(`Xoá activity "${a.subject}"?`)) delActivity.mutate(a.id);
+                    }}
+                  />
                 </CardBody>
               </Card>
             ))}
@@ -256,7 +335,10 @@ export function AccountDetail() {
               title="Danh bạ"
               subtitle="Người liên hệ tại khách hàng"
               action={
-                <Button size="sm" onClick={() => setContactOpen(true)}>
+                <Button
+                  size="sm"
+                  onClick={() => setContactDialog({ open: true, editing: null })}
+                >
                   <UserPlus className="h-3.5 w-3.5" />
                   Thêm contact
                 </Button>
@@ -264,35 +346,52 @@ export function AccountDetail() {
             />
             <Card>
               <CardBody className="p-0">
-              {(account.contacts ?? []).length === 0 ? (
-                <div className="p-5 text-sm text-slate-500">Chưa có contact nào.</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Họ tên</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Chức danh</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Email</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Phone</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(account.contacts ?? []).map((c) => (
-                      <tr key={c.id} className="border-b border-slate-100">
-                        <td className="px-4 py-2 font-medium">
-                          {c.fullName}
-                          {c.isPrimary && (
-                            <Badge className="ml-2 bg-brand-100 text-brand-700">primary</Badge>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">{c.title ?? "—"}</td>
-                        <td className="px-4 py-2 text-slate-600">{c.email ?? "—"}</td>
-                        <td className="px-4 py-2 text-slate-600">{c.phone ?? "—"}</td>
+                {(account.contacts ?? []).length === 0 ? (
+                  <div className="p-5 text-sm text-slate-500">Chưa có contact nào.</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                          Họ tên
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                          Chức danh
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                          Email
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                          Phone
+                        </th>
+                        <th className="w-24 px-2 py-2" />
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                    </thead>
+                    <tbody>
+                      {(account.contacts ?? []).map((c) => (
+                        <tr key={c.id} className="border-b border-slate-100">
+                          <td className="px-4 py-2 font-medium">
+                            {c.fullName}
+                            {c.isPrimary && (
+                              <Badge className="ml-2 bg-brand-100 text-brand-700">primary</Badge>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-slate-600">{c.title ?? "—"}</td>
+                          <td className="px-4 py-2 text-slate-600">{c.email ?? "—"}</td>
+                          <td className="px-4 py-2 text-slate-600">{c.phone ?? "—"}</td>
+                          <td className="px-2 py-2">
+                            <RowActions
+                              onEdit={() => setContactDialog({ open: true, editing: c })}
+                              onDelete={() => {
+                                if (confirm(`Xoá contact "${c.fullName}"?`)) delContact.mutate(c.id);
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </CardBody>
             </Card>
           </div>
@@ -305,46 +404,58 @@ export function AccountDetail() {
               title="Cơ hội bán hàng"
               subtitle="Deal thuộc pipeline của account này"
               action={
-                <Button size="sm" onClick={() => setDealOpen(true)}>
+                <Button size="sm" onClick={() => setDealDialog({ open: true, editing: null })}>
                   <Plus className="h-3.5 w-3.5" />
                   Tạo deal mới
                 </Button>
               }
             />
             <div className="grid gap-3 md:grid-cols-2">
-            {(account.deals ?? []).length === 0 && (
-              <Card>
-                <CardBody className="text-sm text-slate-500">Chưa có deal nào.</CardBody>
-              </Card>
-            )}
-            {(account.deals ?? []).map((d) => (
-              <Card key={d.id}>
-                <CardBody>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-medium text-sm">{d.title}</div>
-                    <Badge className={stageColor(d.stage)}>{d.stage}</Badge>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <div>
-                      <div className="text-slate-400">Giá trị</div>
-                      <div className="font-semibold text-slate-900">{formatVND(d.value)}</div>
+              {(account.deals ?? []).length === 0 && (
+                <Card>
+                  <CardBody className="text-sm text-slate-500">Chưa có deal nào.</CardBody>
+                </Card>
+              )}
+              {(account.deals ?? []).map((d) => (
+                <Card key={d.id}>
+                  <CardBody>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-medium text-sm">{d.title}</div>
+                      <Badge className={stageColor(d.stage)}>{d.stage}</Badge>
                     </div>
-                    <div>
-                      <div className="text-slate-400">Probability</div>
-                      <div className="font-semibold text-slate-900">{d.probability ?? "—"}%</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                      <div>
+                        <div className="text-slate-400">Giá trị</div>
+                        <div className="font-semibold text-slate-900">{formatVND(d.value)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400">Probability</div>
+                        <div className="font-semibold text-slate-900">{d.probability ?? "—"}%</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400">Vendor</div>
+                        <div>{d.vendor ?? "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400">Expected close</div>
+                        <div>{formatDate(d.expectedClose)}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-slate-400">Vendor</div>
-                      <div>{d.vendor ?? "—"}</div>
+                    <div className="mt-2 -mb-1 flex justify-end">
+                      <RowActions
+                        onEdit={() => setDealDialog({ open: true, editing: d })}
+                        onDelete={
+                          canDeleteDeal
+                            ? () => {
+                                if (confirm(`Xoá deal "${d.title}"?`)) delDeal.mutate(d.id);
+                              }
+                            : undefined
+                        }
+                      />
                     </div>
-                    <div>
-                      <div className="text-slate-400">Expected close</div>
-                      <div>{formatDate(d.expectedClose)}</div>
-                    </div>
-                  </div>
-                </CardBody>
-              </Card>
-            ))}
+                  </CardBody>
+                </Card>
+              ))}
             </div>
           </div>
         )}
@@ -400,33 +511,85 @@ export function AccountDetail() {
       </div>
 
       {chatOpen && (
-        <AIChatSidebar accountId={account.id} accountName={account.companyName} onClose={() => setChatOpen(false)} />
+        <AIChatSidebar
+          accountId={account.id}
+          accountName={account.companyName}
+          onClose={() => setChatOpen(false)}
+        />
       )}
 
-      <AddActivityDialog
-        open={actOpen}
+      <ActivityDialog
+        open={actDialog.open}
         accountId={account.id}
-        onClose={() => setActOpen(false)}
-        onCreated={() => qc.invalidateQueries({ queryKey: ["account", id] })}
+        activity={actDialog.editing}
+        onClose={() => setActDialog({ open: false, editing: null })}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["account", id] })}
       />
 
-      <NewContactDialog
-        open={contactOpen}
+      <ContactDialog
+        open={contactDialog.open}
         accountId={account.id}
-        onClose={() => setContactOpen(false)}
-        onCreated={() => qc.invalidateQueries({ queryKey: ["account", id] })}
+        contact={contactDialog.editing}
+        onClose={() => setContactDialog({ open: false, editing: null })}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["account", id] })}
       />
 
-      <NewDealDialog
-        open={dealOpen}
+      <DealDialog
+        open={dealDialog.open}
         accountId={account.id}
-        onClose={() => setDealOpen(false)}
-        onCreated={() => {
+        deal={dealDialog.editing}
+        onClose={() => setDealDialog({ open: false, editing: null })}
+        onSaved={() => {
           qc.invalidateQueries({ queryKey: ["account", id] });
-          // Also refresh the global deals list (used by pipeline view / dashboards).
           qc.invalidateQueries({ queryKey: ["deals"] });
         }}
       />
+
+      <AccountDialog
+        open={accountDialog}
+        account={account}
+        onClose={() => setAccountDialog(false)}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["account", id] });
+          qc.invalidateQueries({ queryKey: ["accounts"] });
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * RowActions — inline pencil + trash icon buttons used on rows/cards.
+ *
+ * `onDelete` is optional — when omitted, we hide the delete icon (e.g. for
+ * roles that aren't allowed to delete deals). Keeps the UI honest about what
+ * the user can actually do rather than rendering a button that will 403.
+ */
+function RowActions({
+  onEdit,
+  onDelete,
+}: {
+  onEdit: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <button
+        onClick={onEdit}
+        className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+        title="Sửa"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      {onDelete && (
+        <button
+          onClick={onDelete}
+          className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+          title="Xoá"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }

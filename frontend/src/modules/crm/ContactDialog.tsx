@@ -1,26 +1,26 @@
 /**
- * NewContactDialog — create a contact attached to an account.
+ * ContactDialog — create OR edit a contact.
  *
- * Small form: fullName (required), title, email, phone, isPrimary.
- * Email field allows empty string — backend accepts literal("") so sales
- * can add a contact we only have a phone number for.
+ * Passing `contact` switches to edit mode (PUT /api/contacts/:id). Without
+ * it, we're in create mode (POST /api/contacts, which requires accountId).
+ * One component handles both to keep the form fields + validation in sync.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import type { Contact } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 
-export function NewContactDialog({
-  open,
-  accountId,
-  onClose,
-  onCreated,
-}: {
+interface Props {
   open: boolean;
   accountId: string;
+  contact?: Contact | null; // null/undefined ⇒ create, truthy ⇒ edit
   onClose: () => void;
-  onCreated: () => void;
-}) {
+  onSaved: () => void;
+}
+
+export function ContactDialog({ open, accountId, contact, onClose, onSaved }: Props) {
+  const editing = !!contact;
   const [fullName, setFullName] = useState("");
   const [title, setTitle] = useState("");
   const [email, setEmail] = useState("");
@@ -29,33 +29,38 @@ export function NewContactDialog({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  if (!open) return null;
-
-  function reset() {
-    setFullName("");
-    setTitle("");
-    setEmail("");
-    setPhone("");
-    setIsPrimary(false);
+  // Re-seed state whenever the dialog opens with a different contact.
+  useEffect(() => {
+    if (!open) return;
+    setFullName(contact?.fullName ?? "");
+    setTitle(contact?.title ?? "");
+    setEmail(contact?.email ?? "");
+    setPhone(contact?.phone ?? "");
+    setIsPrimary(contact?.isPrimary ?? false);
     setErr(null);
-  }
+  }, [open, contact]);
+
+  if (!open) return null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setLoading(true);
     try {
-      await api.post("/contacts", {
+      const payload = {
         fullName: fullName.trim(),
-        title: title.trim() || undefined,
-        email: email.trim(),
-        phone: phone.trim() || undefined,
+        title: title || undefined,
+        email: email || "",
+        phone: phone || undefined,
         isPrimary,
-        accountId,
-      });
-      onCreated();
+      };
+      if (editing && contact) {
+        await api.put(`/contacts/${contact.id}`, payload);
+      } else {
+        await api.post("/contacts", { ...payload, accountId });
+      }
+      onSaved();
       onClose();
-      reset();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -67,7 +72,9 @@ export function NewContactDialog({
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold">Thêm contact</h2>
+          <h2 className="text-sm font-semibold">
+            {editing ? "Sửa contact" : "Thêm contact mới"}
+          </h2>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
             ✕
           </button>
@@ -78,7 +85,6 @@ export function NewContactDialog({
             <Input
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="Nguyễn Văn A"
               required
               autoFocus
             />
@@ -88,36 +94,29 @@ export function NewContactDialog({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="IT Manager"
+              placeholder="VD: CTO, Head of IT..."
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="a.nguyen@acme.vn"
-              />
-            </div>
-            <div>
-              <Label>Phone</Label>
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+84 9xx xxx xxx"
-              />
-            </div>
+          <div>
+            <Label>Email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="example@company.com"
+            />
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700 pt-1 select-none">
+          <div>
+            <Label>Phone</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
               checked={isPrimary}
               onChange={(e) => setIsPrimary(e.target.checked)}
-              className="rounded border-slate-300"
             />
-            Đặt làm primary contact
+            Primary contact
           </label>
           {err && (
             <div className="rounded bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>
@@ -127,7 +126,7 @@ export function NewContactDialog({
               Hủy
             </Button>
             <Button type="submit" loading={loading} disabled={!fullName.trim()}>
-              Lưu
+              {editing ? "Lưu thay đổi" : "Tạo"}
             </Button>
           </div>
         </form>

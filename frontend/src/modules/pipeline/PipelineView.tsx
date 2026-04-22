@@ -6,6 +6,10 @@
  * dropdown that PUTs to /api/deals/:id. That's one more click than drag but
  * accessible and robust.
  *
+ * Each card also has inline edit (opens DealDialog in edit mode) and delete
+ * (manager+ only, matching backend RBAC). The dialog is hoisted to this
+ * component so one mount handles every card.
+ *
  * Top bar: total pipeline value (sum of open deals), weighted forecast
  * (sum of value × probability/100 for open deals), plus vendor/owner filters.
  * "Open" = everything except closed_won / closed_lost.
@@ -13,11 +17,21 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, Target, Filter, TrendingUp, ExternalLink } from "lucide-react";
+import {
+  Briefcase,
+  Target,
+  Filter,
+  TrendingUp,
+  ExternalLink,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import type { Deal } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { formatVND, formatDate, stageColor } from "@/lib/format";
+import { DealDialog } from "@/modules/crm/DealDialog";
 
 type StageKey =
   | "prospecting"
@@ -42,7 +56,10 @@ const VENDORS = ["HPE", "Dell", "IBM", "Palo Alto", "CrowdStrike", "Microsoft", 
 
 export function PipelineView() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const canDelete = user?.role === "admin" || user?.role === "manager";
   const [vendor, setVendor] = useState("");
+  const [editDeal, setEditDeal] = useState<Deal | null>(null);
 
   const { data: deals, isLoading } = useQuery({
     queryKey: ["deals", { vendor }],
@@ -57,6 +74,11 @@ export function PipelineView() {
   const moveMut = useMutation({
     mutationFn: ({ id, stage }: { id: string; stage: StageKey }) =>
       api.put(`/deals/${id}`, { stage }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["deals"] }),
+  });
+
+  const delMut = useMutation({
+    mutationFn: (id: string) => api.del(`/deals/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["deals"] }),
   });
 
@@ -173,10 +195,27 @@ export function PipelineView() {
               stage={s}
               deals={grouped[s.key]}
               onChangeStage={(id, newStage) => moveMut.mutate({ id, stage: newStage })}
+              onEdit={(d) => setEditDeal(d)}
+              onDelete={
+                canDelete
+                  ? (d) => {
+                      if (confirm(`Xoá deal "${d.title}"?`)) delMut.mutate(d.id);
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>
       </div>
+
+      {/* Edit dialog — hoisted so one mount handles every card */}
+      <DealDialog
+        open={!!editDeal}
+        accountId={editDeal?.accountId ?? ""}
+        deal={editDeal}
+        onClose={() => setEditDeal(null)}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["deals"] })}
+      />
     </div>
   );
 }
@@ -185,10 +224,14 @@ function KanbanColumn({
   stage,
   deals,
   onChangeStage,
+  onEdit,
+  onDelete,
 }: {
   stage: { key: StageKey; label: string };
   deals: Deal[];
   onChangeStage: (id: string, newStage: StageKey) => void;
+  onEdit: (d: Deal) => void;
+  onDelete?: (d: Deal) => void;
 }) {
   const total = deals.reduce((s, d) => s + (d.value ?? 0), 0);
   return (
@@ -206,7 +249,15 @@ function KanbanColumn({
         {deals.length === 0 ? (
           <div className="text-[11px] text-slate-400 text-center py-6">— trống —</div>
         ) : (
-          deals.map((d) => <DealCard key={d.id} deal={d} onChangeStage={onChangeStage} />)
+          deals.map((d) => (
+            <DealCard
+              key={d.id}
+              deal={d}
+              onChangeStage={onChangeStage}
+              onEdit={() => onEdit(d)}
+              onDelete={onDelete ? () => onDelete(d) : undefined}
+            />
+          ))
         )}
       </div>
     </div>
@@ -216,23 +267,45 @@ function KanbanColumn({
 function DealCard({
   deal,
   onChangeStage,
+  onEdit,
+  onDelete,
 }: {
   deal: Deal;
   onChangeStage: (id: string, newStage: StageKey) => void;
+  onEdit: () => void;
+  onDelete?: () => void;
 }) {
   return (
-    <div className="rounded-md bg-white border border-slate-200 p-2.5 shadow-sm hover:shadow transition">
+    <div className="group rounded-md bg-white border border-slate-200 p-2.5 shadow-sm hover:shadow transition">
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="font-medium text-sm text-slate-800 line-clamp-2">{deal.title}</div>
-        {deal.account && (
-          <Link
-            to={`/crm/${deal.account.id}`}
-            title={`Mở account ${deal.account.companyName}`}
-            className="shrink-0 text-slate-400 hover:text-brand-600"
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+          <button
+            onClick={onEdit}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title="Sửa"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        )}
+            <Pencil className="h-3 w-3" />
+          </button>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+              title="Xoá"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
+          {deal.account && (
+            <Link
+              to={`/crm/${deal.account.id}`}
+              title={`Mở account ${deal.account.companyName}`}
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          )}
+        </div>
       </div>
 
       {deal.account && (

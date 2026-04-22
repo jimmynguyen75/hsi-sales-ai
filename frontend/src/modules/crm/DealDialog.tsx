@@ -1,13 +1,15 @@
 /**
- * NewDealDialog — create a deal attached to an account.
+ * DealDialog — create OR edit a deal.
  *
- * Stage is the only enum field (matches backend Zod schema). value +
- * probability are optional. expectedClose takes a <input type="date"> value
- * ("YYYY-MM-DD") and we convert to ISO datetime before POSTing, because
- * the backend validator uses z.string().datetime().
+ * Edit mode triggers PUT /api/deals/:id (RBAC: owner or manager+). Create
+ * mode POSTs to /api/deals with accountId.
+ *
+ * Date wrangling: backend uses ISO datetime, <input type="date"> uses
+ * "YYYY-MM-DD". Convert both ways around the form.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import type { Deal } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 
@@ -22,58 +24,65 @@ const STAGES: Array<{ value: string; label: string }> = [
 
 const VENDORS = ["HPE", "Dell", "IBM", "Palo Alto", "CrowdStrike", "Microsoft", "Other"];
 
-export function NewDealDialog({
-  open,
-  accountId,
-  onClose,
-  onCreated,
-}: {
+function toDateInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  // ISO → YYYY-MM-DD
+  return iso.slice(0, 10);
+}
+
+interface Props {
   open: boolean;
-  accountId: string;
+  accountId: string; // always known (deals always belong to an account)
+  deal?: Deal | null;
   onClose: () => void;
-  onCreated: () => void;
-}) {
+  onSaved: () => void;
+}
+
+export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
+  const editing = !!deal;
   const [title, setTitle] = useState("");
   const [stage, setStage] = useState("prospecting");
-  const [value, setValue] = useState<string>("");
-  const [probability, setProbability] = useState<string>("");
+  const [value, setValue] = useState("");
+  const [probability, setProbability] = useState("");
   const [vendor, setVendor] = useState("");
   const [expectedClose, setExpectedClose] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  if (!open) return null;
-
-  function reset() {
-    setTitle("");
-    setStage("prospecting");
-    setValue("");
-    setProbability("");
-    setVendor("");
-    setExpectedClose("");
+  useEffect(() => {
+    if (!open) return;
+    setTitle(deal?.title ?? "");
+    setStage(deal?.stage ?? "prospecting");
+    setValue(deal?.value != null ? String(deal.value) : "");
+    setProbability(deal?.probability != null ? String(deal.probability) : "");
+    setVendor(deal?.vendor ?? "");
+    setExpectedClose(toDateInput(deal?.expectedClose));
     setErr(null);
-  }
+  }, [open, deal]);
+
+  if (!open) return null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setLoading(true);
     try {
-      // HTML <input type="date"> → "YYYY-MM-DD". Backend expects ISO datetime,
-      // so interpret as midnight UTC.
       const isoClose = expectedClose ? new Date(expectedClose).toISOString() : null;
-      await api.post("/deals", {
+      const payload = {
         title: title.trim(),
         stage,
         value: value ? Number(value) : null,
         probability: probability ? Number(probability) : null,
         vendor: vendor || null,
         expectedClose: isoClose,
-        accountId,
-      });
-      onCreated();
+      };
+      if (editing && deal) {
+        await api.put(`/deals/${deal.id}`, payload);
+      } else {
+        await api.post("/deals", { ...payload, accountId });
+      }
+      onSaved();
       onClose();
-      reset();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -85,7 +94,9 @@ export function NewDealDialog({
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold">Tạo deal mới</h2>
+          <h2 className="text-sm font-semibold">
+            {editing ? "Sửa deal" : "Tạo deal mới"}
+          </h2>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
             ✕
           </button>
@@ -172,7 +183,7 @@ export function NewDealDialog({
               Hủy
             </Button>
             <Button type="submit" loading={loading} disabled={!title.trim()}>
-              Lưu
+              {editing ? "Lưu thay đổi" : "Tạo"}
             </Button>
           </div>
         </form>

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Trash2, Search, Upload } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Search, Upload, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
@@ -15,13 +15,16 @@ const VENDORS = ["HPE", "Dell", "IBM", "Palo Alto", "CrowdStrike", "Microsoft", 
 const CATEGORIES = ["server", "storage", "networking", "security", "cloud", "software", "service"];
 const UNITS = ["unit", "license", "month", "year"];
 
+type ProductPayload = Omit<Product, "id" | "createdAt" | "active">;
+
 export function ProductCatalog() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canManage = user?.role === "manager" || user?.role === "admin";
   const [query, setQuery] = useState("");
   const [vendor, setVendor] = useState("");
-  const [creating, setCreating] = useState(false);
+  // Form state: null = closed, {} = open in create mode, Product = open in edit mode.
+  const [formState, setFormState] = useState<Product | "new" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
   const { data: products, isLoading } = useQuery({
@@ -35,10 +38,18 @@ export function ProductCatalog() {
   });
 
   const createMut = useMutation({
-    mutationFn: (p: Omit<Product, "id" | "createdAt" | "active">) =>
-      api.post<Product>("/products", p),
+    mutationFn: (p: ProductPayload) => api.post<Product>("/products", p),
     onSuccess: () => {
-      setCreating(false);
+      setFormState(null);
+      qc.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: ProductPayload }) =>
+      api.put<Product>(`/products/${id}`, patch),
+    onSuccess: () => {
+      setFormState(null);
       qc.invalidateQueries({ queryKey: ["products"] });
     },
   });
@@ -47,6 +58,9 @@ export function ProductCatalog() {
     mutationFn: (id: string) => api.del(`/products/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
+
+  const editing = formState !== null && formState !== "new" ? formState : null;
+  const formOpen = formState !== null;
 
   return (
     <div className="p-6 space-y-4">
@@ -70,7 +84,7 @@ export function ProductCatalog() {
               Import CSV
             </Button>
           )}
-          <Button onClick={() => setCreating(true)}>
+          <Button onClick={() => setFormState("new")}>
             <Plus className="h-4 w-4" />
             Sản phẩm mới
           </Button>
@@ -101,11 +115,15 @@ export function ProductCatalog() {
         </select>
       </div>
 
-      {creating && (
-        <NewProductForm
-          onCreate={(p) => createMut.mutate(p)}
-          onCancel={() => setCreating(false)}
-          loading={createMut.isPending}
+      {formOpen && (
+        <ProductForm
+          initial={editing}
+          onSubmit={(p) => {
+            if (editing) updateMut.mutate({ id: editing.id, patch: p });
+            else createMut.mutate(p);
+          }}
+          onCancel={() => setFormState(null)}
+          loading={createMut.isPending || updateMut.isPending}
         />
       )}
 
@@ -156,14 +174,28 @@ export function ProductCatalog() {
                   </td>
                   <td className="px-3 py-2 text-right text-xs text-slate-500">{p.unit}</td>
                   <td className="px-3 py-2 text-right">
-                    <button
-                      onClick={() => {
-                        if (confirm("Xoá sản phẩm này?")) delMut.mutate(p.id);
-                      }}
-                      className="text-rose-500 hover:text-rose-700"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      {canManage && (
+                        <button
+                          onClick={() => setFormState(p)}
+                          className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                          title="Sửa"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canManage && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Xoá "${p.name}"?`)) delMut.mutate(p.id);
+                          }}
+                          className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Xoá"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -199,41 +231,56 @@ export function ProductCatalog() {
   );
 }
 
-function NewProductForm({
-  onCreate,
+/**
+ * ProductForm — shared create/edit form. `initial` seeds fields for edit;
+ * passing null/undefined keeps defaults for a fresh record.
+ */
+function ProductForm({
+  initial,
+  onSubmit,
   onCancel,
   loading,
 }: {
-  onCreate: (p: {
-    vendor: string;
-    sku: string | null;
-    name: string;
-    description: string | null;
-    category: string | null;
-    unit: string;
-    listPrice: number;
-    partnerCost: number | null;
-    currency: string;
-  }) => void;
+  initial: Product | null;
+  onSubmit: (p: ProductPayload) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
-  const [form, setForm] = useState({
+  const editing = !!initial;
+  const [form, setForm] = useState<ProductPayload>({
     vendor: "HPE",
-    sku: "",
+    sku: null,
     name: "",
-    description: "",
+    description: null,
     category: "server",
     unit: "unit",
     listPrice: 0,
-    partnerCost: 0,
+    partnerCost: null,
     currency: "VND",
   });
+
+  useEffect(() => {
+    if (initial) {
+      setForm({
+        vendor: initial.vendor,
+        sku: initial.sku,
+        name: initial.name,
+        description: initial.description,
+        category: initial.category,
+        unit: initial.unit,
+        listPrice: initial.listPrice,
+        partnerCost: initial.partnerCost,
+        currency: initial.currency,
+      });
+    }
+  }, [initial]);
 
   return (
     <Card>
       <CardBody className="space-y-3">
-        <div className="text-sm font-semibold">Sản phẩm mới</div>
+        <div className="text-sm font-semibold">
+          {editing ? `Sửa: ${initial?.name}` : "Sản phẩm mới"}
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <div>
             <Label>Vendor</Label>
@@ -251,12 +298,15 @@ function NewProductForm({
           </div>
           <div>
             <Label>SKU</Label>
-            <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+            <Input
+              value={form.sku ?? ""}
+              onChange={(e) => setForm({ ...form, sku: e.target.value || null })}
+            />
           </div>
           <div>
             <Label>Category</Label>
             <select
-              value={form.category}
+              value={form.category ?? "server"}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
               className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
             >
@@ -293,8 +343,8 @@ function NewProductForm({
         <div>
           <Label>Mô tả</Label>
           <Textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            value={form.description ?? ""}
+            onChange={(e) => setForm({ ...form, description: e.target.value || null })}
             rows={2}
           />
         </div>
@@ -313,8 +363,10 @@ function NewProductForm({
             <Input
               type="number"
               min={0}
-              value={form.partnerCost}
-              onChange={(e) => setForm({ ...form, partnerCost: Number(e.target.value) || 0 })}
+              value={form.partnerCost ?? 0}
+              onChange={(e) =>
+                setForm({ ...form, partnerCost: Number(e.target.value) || null })
+              }
             />
           </div>
         </div>
@@ -326,21 +378,9 @@ function NewProductForm({
             size="sm"
             loading={loading}
             disabled={!form.name.trim() || form.listPrice <= 0}
-            onClick={() =>
-              onCreate({
-                vendor: form.vendor,
-                sku: form.sku || null,
-                name: form.name,
-                description: form.description || null,
-                category: form.category || null,
-                unit: form.unit,
-                listPrice: form.listPrice,
-                partnerCost: form.partnerCost || null,
-                currency: form.currency,
-              })
-            }
+            onClick={() => onSubmit(form)}
           >
-            Lưu
+            {editing ? "Lưu thay đổi" : "Lưu"}
           </Button>
         </div>
       </CardBody>
