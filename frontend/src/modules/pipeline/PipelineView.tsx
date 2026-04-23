@@ -25,9 +25,10 @@ import {
   ExternalLink,
   Pencil,
   Trash2,
+  User as UserIcon,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Deal } from "@/lib/types";
+import type { Deal, User } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { formatVND, formatDate, stageColor } from "@/lib/format";
@@ -58,7 +59,11 @@ export function PipelineView() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canDelete = user?.role === "admin";
+  const isAdmin = user?.role === "admin";
   const [vendor, setVendor] = useState("");
+  // Owner filter only appears for admins (sales already see only their own).
+  // Empty string = show all. Stores userId.
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [editDeal, setEditDeal] = useState<Deal | null>(null);
 
   const { data: deals, isLoading } = useQuery({
@@ -68,6 +73,14 @@ export function PipelineView() {
       if (vendor) p.set("vendor", vendor);
       return api.get<Deal[]>(`/deals?${p.toString()}`);
     },
+  });
+
+  // Admin-only: fetch the team list for the owner filter dropdown. Backend
+  // guards /users with requireRole("admin"), so sales never hit this.
+  const { data: teamUsers } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => api.get<User[]>("/users"),
+    enabled: isAdmin,
   });
 
   // Move deal to another stage. Optimistic update keeps the UI responsive.
@@ -82,6 +95,14 @@ export function PipelineView() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["deals"] }),
   });
 
+  // Owner filter is applied client-side on top of the server response — the
+  // server already scopes sales to their own deals, and for admin the extra
+  // param round-trip isn't worth it when we already have everyone loaded.
+  const filteredDeals = useMemo(() => {
+    if (!ownerFilter) return deals ?? [];
+    return (deals ?? []).filter((d) => d.ownerId === ownerFilter || d.owner?.id === ownerFilter);
+  }, [deals, ownerFilter]);
+
   const grouped = useMemo(() => {
     const g: Record<StageKey, Deal[]> = {
       prospecting: [],
@@ -91,25 +112,25 @@ export function PipelineView() {
       closed_won: [],
       closed_lost: [],
     };
-    for (const d of deals ?? []) {
+    for (const d of filteredDeals) {
       const s = (d.stage as StageKey) in g ? (d.stage as StageKey) : "prospecting";
       g[s].push(d);
     }
     return g;
-  }, [deals]);
+  }, [filteredDeals]);
 
   const stats = useMemo(() => {
-    const open = (deals ?? []).filter((d) => OPEN_STAGES.includes(d.stage as StageKey));
+    const open = filteredDeals.filter((d) => OPEN_STAGES.includes(d.stage as StageKey));
     const totalValue = open.reduce((s, d) => s + (d.value ?? 0), 0);
     const weighted = open.reduce(
       (s, d) => s + ((d.value ?? 0) * (d.probability ?? 0)) / 100,
       0,
     );
-    const won = (deals ?? [])
+    const won = filteredDeals
       .filter((d) => d.stage === "closed_won")
       .reduce((s, d) => s + (d.value ?? 0), 0);
     return { openCount: open.length, totalValue, weighted, won };
-  }, [deals]);
+  }, [filteredDeals]);
 
   return (
     <div className="p-6 space-y-4">
@@ -172,16 +193,38 @@ export function PipelineView() {
               </option>
             ))}
           </select>
-          {vendor && (
+          {isAdmin && (
+            <select
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-xs"
+              title="Lọc theo sales owner"
+            >
+              <option value="">Mọi sales</option>
+              {(teamUsers ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} {u.role === "admin" ? "(admin)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          {(vendor || ownerFilter) && (
             <button
-              onClick={() => setVendor("")}
+              onClick={() => {
+                setVendor("");
+                setOwnerFilter("");
+              }}
               className="text-xs text-slate-500 hover:text-slate-800 underline"
             >
               xoá lọc
             </button>
           )}
           <div className="ml-auto text-[11px] text-slate-400">
-            {isLoading ? "Đang tải..." : `${deals?.length ?? 0} deals`}
+            {isLoading
+              ? "Đang tải..."
+              : ownerFilter || vendor
+                ? `${filteredDeals.length} / ${deals?.length ?? 0} deals`
+                : `${deals?.length ?? 0} deals`}
           </div>
         </div>
       </Card>
@@ -194,6 +237,7 @@ export function PipelineView() {
               key={s.key}
               stage={s}
               deals={grouped[s.key]}
+              showOwner={isAdmin}
               onChangeStage={(id, newStage) => moveMut.mutate({ id, stage: newStage })}
               onEdit={(d) => setEditDeal(d)}
               onDelete={
@@ -223,12 +267,14 @@ export function PipelineView() {
 function KanbanColumn({
   stage,
   deals,
+  showOwner,
   onChangeStage,
   onEdit,
   onDelete,
 }: {
   stage: { key: StageKey; label: string };
   deals: Deal[];
+  showOwner: boolean;
   onChangeStage: (id: string, newStage: StageKey) => void;
   onEdit: (d: Deal) => void;
   onDelete?: (d: Deal) => void;
@@ -253,6 +299,7 @@ function KanbanColumn({
             <DealCard
               key={d.id}
               deal={d}
+              showOwner={showOwner}
               onChangeStage={onChangeStage}
               onEdit={() => onEdit(d)}
               onDelete={onDelete ? () => onDelete(d) : undefined}
@@ -266,11 +313,13 @@ function KanbanColumn({
 
 function DealCard({
   deal,
+  showOwner,
   onChangeStage,
   onEdit,
   onDelete,
 }: {
   deal: Deal;
+  showOwner: boolean;
   onChangeStage: (id: string, newStage: StageKey) => void;
   onEdit: () => void;
   onDelete?: () => void;
@@ -309,7 +358,16 @@ function DealCard({
       </div>
 
       {deal.account && (
-        <div className="text-[11px] text-slate-500 truncate mb-2">{deal.account.companyName}</div>
+        <div className="text-[11px] text-slate-500 truncate mb-1">{deal.account.companyName}</div>
+      )}
+
+      {/* Owner chip — only shown for admins. For sales this is always
+          themselves and would just be noise. */}
+      {showOwner && deal.owner && (
+        <div className="mb-2 inline-flex items-center gap-1 rounded bg-slate-50 border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
+          <UserIcon className="h-2.5 w-2.5" />
+          {deal.owner.name}
+        </div>
       )}
 
       <div className="flex items-center justify-between gap-2 mb-2">

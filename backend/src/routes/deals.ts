@@ -22,7 +22,13 @@ dealsRouter.get("/", async (req, res, next) => {
     const deals = await prisma.deal.findMany({
       where,
       orderBy: { updatedAt: "desc" },
-      include: { account: { select: { id: true, companyName: true, industry: true } } },
+      include: {
+        account: { select: { id: true, companyName: true, industry: true } },
+        // Admins see deals across the whole team — include the owner so the UI
+        // can show "whose deal is this" without a second roundtrip per row.
+        // Sales also receive this but they only see their own rows anyway.
+        owner: { select: { id: true, name: true, email: true } },
+      },
     });
     ok(res, deals);
   } catch (e) {

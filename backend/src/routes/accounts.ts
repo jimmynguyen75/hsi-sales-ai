@@ -48,6 +48,9 @@ accountsRouter.get("/", async (req, res, next) => {
           orderBy: { generatedAt: "desc" },
           take: 1,
         },
+        // Admins view the whole team's book — bundle the owner so we can
+        // show the Owner column without N+1 fetches.
+        owner: { select: { id: true, name: true, email: true } },
       },
     });
 

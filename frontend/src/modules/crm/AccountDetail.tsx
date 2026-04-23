@@ -132,6 +132,15 @@ export function AccountDetail() {
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 {account.industry && <Badge className="bg-slate-100 text-slate-700">{account.industry}</Badge>}
                 {account.size && <Badge className="bg-slate-100 text-slate-700">{account.size}</Badge>}
+                {/* Owner — handy for admin browsing other sales' accounts. */}
+                {account.owner && (
+                  <Badge
+                    className="bg-brand-50 text-brand-700 border border-brand-200"
+                    title={account.owner.email}
+                  >
+                    Owner: {account.owner.name}
+                  </Badge>
+                )}
                 {account.website && (
                   <a
                     href={account.website}

@@ -45,9 +45,11 @@ export interface Deal {
   vendor: string | null;
   productLine: string | null;
   accountId: string;
+  ownerId?: string;
   createdAt: string;
   updatedAt: string;
   account?: Pick<Account, "id" | "companyName" | "industry">;
+  owner?: Pick<User, "id" | "name" | "email">;
 }
 
 export interface Activity {

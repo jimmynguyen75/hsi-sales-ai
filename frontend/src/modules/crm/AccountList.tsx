@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Plus, Filter, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Account } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -16,6 +17,8 @@ type SortDir = "asc" | "desc";
 
 export function AccountList() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [q, setQ] = useState("");
   const [industry, setIndustry] = useState("");
   const [minHealth, setMinHealth] = useState<string>("");
@@ -146,6 +149,11 @@ export function AccountList() {
               <tr>
                 <SortTh label="Công ty" sk="companyName" />
                 <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Industry</th>
+                {isAdmin && (
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                    Owner
+                  </th>
+                )}
                 <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Deals</th>
                 <SortTh label="Health" sk="healthScore" />
                 <SortTh label="Cập nhật" sk="updatedAt" />
@@ -155,14 +163,14 @@ export function AccountList() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-xs">
+                  <td colSpan={isAdmin ? 7 : 6} className="px-4 py-8 text-center text-slate-400 text-xs">
                     Đang tải...
                   </td>
                 </tr>
               )}
               {!isLoading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-xs">
+                  <td colSpan={isAdmin ? 7 : 6} className="px-4 py-8 text-center text-slate-400 text-xs">
                     Chưa có account nào.
                   </td>
                 </tr>
@@ -181,6 +189,20 @@ export function AccountList() {
                       {a.size && <div className="text-[11px] text-slate-500">{a.size}</div>}
                     </td>
                     <td className="px-4 py-3 text-slate-600">{a.industry ?? "—"}</td>
+                    {isAdmin && (
+                      <td className="px-4 py-3 text-slate-600">
+                        {a.owner ? (
+                          <span
+                            className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-700"
+                            title={a.owner.email}
+                          >
+                            {a.owner.name}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-slate-600">{a._count?.deals ?? 0}</td>
                     <td className="px-4 py-3">
                       <Badge className={healthColor(a.healthScore)}>
