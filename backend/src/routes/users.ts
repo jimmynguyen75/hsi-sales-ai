@@ -38,7 +38,7 @@ const createSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(["sales", "manager", "admin"]).default("sales"),
+  role: z.enum(["sales", "admin"]).default("sales"),
 });
 
 usersRouter.post("/", async (req, res, next) => {
@@ -64,7 +64,7 @@ usersRouter.post("/", async (req, res, next) => {
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
-  role: z.enum(["sales", "manager", "admin"]).optional(),
+  role: z.enum(["sales", "admin"]).optional(),
   password: z.string().min(6).optional(),
 });
 

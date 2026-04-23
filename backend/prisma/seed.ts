@@ -43,11 +43,10 @@ async function main() {
     update: {},
     create: { name: "Jimmy Nguyen", email: "jimmy@hpt.vn", passwordHash, role: "sales" },
   });
-  const manager = await prisma.user.upsert({
-    where: { email: "manager@hpt.vn" },
-    update: {},
-    create: { name: "Trần Hữu Quản", email: "manager@hpt.vn", passwordHash, role: "manager" },
-  });
+  // The "manager" role was removed from the system — we only ship sales + admin
+  // now. Drop any leftover manager account from older seeds so login + RBAC
+  // stay clean on re-seed.
+  await prisma.user.deleteMany({ where: { email: "manager@hpt.vn" } });
   await prisma.user.upsert({
     where: { email: "admin@hpt.vn" },
     update: {},

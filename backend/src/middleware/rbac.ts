@@ -3,22 +3,21 @@
  *
  * Usage:
  *   router.delete("/:id", requireRole("admin"), handler);
- *   router.get("/all", requireRole("manager", "admin"), handler);
  *
- * Hierarchy is flat — if a route needs "admin OR manager", list both.
- * We deliberately don't do a level system (admin > manager > sales) because
- * some actions should be admin-only even though admin sits "above" manager.
- * Explicit lists are clearer and let us narrow scope later without refactor.
+ * Only two roles exist in the system: "sales" and "admin". Sales users see
+ * their own rows only; admins see and manage everything. Any route that
+ * requires elevated access lists "admin" explicitly — we don't do a level
+ * system because it obscures what's actually gated.
  *
  * Also exports `canViewAll(role)` for routes that branch between "own only"
- * and "everyone" based on role — e.g. accounts list for sales vs manager.
+ * and "everyone" — e.g. accounts list for sales vs admin.
  */
 import type { RequestHandler } from "express";
 import { fail } from "../lib/response.js";
 
-export type Role = "sales" | "manager" | "admin";
+export type Role = "sales" | "admin";
 
-const ALL_ROLES: Role[] = ["sales", "manager", "admin"];
+const ALL_ROLES: Role[] = ["sales", "admin"];
 
 /**
  * Typed as `RequestHandler` so Express keeps the usual Request shape
@@ -42,10 +41,10 @@ export function requireRole(...allowed: Role[]): RequestHandler {
 }
 
 /**
- * True for roles that should see data across all owners (manager, admin).
- * Sales users only see their own-owned rows. Routes use this to decide
- * whether to apply a `where: { ownerId: req.userId }` filter.
+ * True for roles that should see data across all owners. Only admin has
+ * cross-user visibility; sales users are scoped to their own rows via a
+ * `where: { ownerId: req.userId }` filter.
  */
 export function canViewAll(role: string | undefined): boolean {
-  return role === "manager" || role === "admin";
+  return role === "admin";
 }

@@ -17,7 +17,7 @@ model User {
   name         String
   email        String     @unique
   passwordHash String
-  role         String     @default("sales") // sales | manager | admin
+  role         String     @default("sales") // sales | admin
   createdAt    DateTime   @default(now())
 
   accounts  Account[]

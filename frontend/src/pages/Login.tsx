@@ -5,14 +5,14 @@ import { Input, Label } from "@/components/ui/Input";
 import { useAuth } from "@/hooks/useAuth";
 
 /**
- * 3 tài khoản seed có sẵn để demo — cùng password `demo1234`.
+ * 2 tài khoản seed có sẵn để demo — cùng password `demo1234`.
  * Giữ ngay ở login page để tester không phải nhớ và dễ so sánh RBAC.
  */
 const DEMO_ACCOUNTS: Array<{
   label: string;
-  role: "sales" | "manager" | "admin";
+  role: "sales" | "admin";
   email: string;
-  tone: "slate" | "amber" | "rose";
+  tone: "slate" | "rose";
   hint: string;
 }> = [
   {
@@ -23,18 +23,11 @@ const DEMO_ACCOUNTS: Array<{
     hint: "Chỉ thấy account/deal của mình",
   },
   {
-    label: "Manager",
-    role: "manager",
-    email: "manager@hpt.vn",
-    tone: "amber",
-    hint: "Thấy & quản lý cả team, sửa product",
-  },
-  {
     label: "Admin",
     role: "admin",
     email: "admin@hpt.vn",
     tone: "rose",
-    hint: "Full quyền: xoá account, users, audit",
+    hint: "Full quyền: xoá, quản lý product, users, audit",
   },
 ];
 
@@ -42,7 +35,6 @@ const DEMO_PASSWORD = "demo1234";
 
 const toneClasses: Record<string, string> = {
   slate: "border-slate-300 hover:bg-slate-50 text-slate-700",
-  amber: "border-amber-300 hover:bg-amber-50 text-amber-800",
   rose: "border-rose-300 hover:bg-rose-50 text-rose-800",
 };
 

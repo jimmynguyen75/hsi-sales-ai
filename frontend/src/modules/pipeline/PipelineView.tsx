@@ -7,7 +7,7 @@
  * accessible and robust.
  *
  * Each card also has inline edit (opens DealDialog in edit mode) and delete
- * (manager+ only, matching backend RBAC). The dialog is hoisted to this
+ * (admin only, matching backend RBAC). The dialog is hoisted to this
  * component so one mount handles every card.
  *
  * Top bar: total pipeline value (sum of open deals), weighted forecast
@@ -57,7 +57,7 @@ const VENDORS = ["HPE", "Dell", "IBM", "Palo Alto", "CrowdStrike", "Microsoft", 
 export function PipelineView() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canDelete = user?.role === "admin" || user?.role === "manager";
+  const canDelete = user?.role === "admin";
   const [vendor, setVendor] = useState("");
   const [editDeal, setEditDeal] = useState<Deal | null>(null);
 

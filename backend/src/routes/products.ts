@@ -68,8 +68,8 @@ const productSchema = z.object({
   currency: z.string().optional(),
 });
 
-// Catalog CRUD is manager+ — sales see pricing but shouldn't edit the SKU list.
-productsRouter.post("/", requireRole("manager", "admin"), async (req, res, next) => {
+// Catalog CRUD is admin-only — sales see pricing but shouldn't edit the SKU list.
+productsRouter.post("/", requireRole("admin"), async (req, res, next) => {
   try {
     const input = productSchema.parse(req.body);
     const created = await prisma.product.create({ data: input });
@@ -81,7 +81,7 @@ productsRouter.post("/", requireRole("manager", "admin"), async (req, res, next)
   }
 });
 
-productsRouter.put<{ id: string }>("/:id", requireRole("manager", "admin"), async (req, res, next) => {
+productsRouter.put<{ id: string }>("/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const input = productSchema.partial().parse(req.body);
     const updated = await prisma.product.update({
@@ -96,7 +96,7 @@ productsRouter.put<{ id: string }>("/:id", requireRole("manager", "admin"), asyn
   }
 });
 
-productsRouter.delete<{ id: string }>("/:id", requireRole("manager", "admin"), async (req, res, next) => {
+productsRouter.delete<{ id: string }>("/:id", requireRole("admin"), async (req, res, next) => {
   try {
     await prisma.product.update({
       where: { id: req.params.id },

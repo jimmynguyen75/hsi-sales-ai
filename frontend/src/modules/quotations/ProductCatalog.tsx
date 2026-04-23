@@ -20,7 +20,7 @@ type ProductPayload = Omit<Product, "id" | "createdAt" | "active">;
 export function ProductCatalog() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canManage = user?.role === "manager" || user?.role === "admin";
+  const canManage = user?.role === "admin";
   const [query, setQuery] = useState("");
   const [vendor, setVendor] = useState("");
   // Form state: null = closed, {} = open in create mode, Product = open in edit mode.

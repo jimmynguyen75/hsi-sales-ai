@@ -8,7 +8,7 @@ import { logAudit, diffSummary } from "../services/audit.js";
 
 export const dealsRouter = Router();
 
-// RBAC: sales sees own deals only; manager/admin see all.
+// RBAC: sales sees own deals only; admin sees all.
 dealsRouter.get("/", async (req, res, next) => {
   try {
     const { accountId, stage, vendor } = req.query as Record<string, string | undefined>;
@@ -104,8 +104,8 @@ dealsRouter.put("/:id", async (req, res, next) => {
   }
 });
 
-// Delete: manager+ only (deals track revenue — sales shouldn't nuke own pipeline).
-dealsRouter.delete<{ id: string }>("/:id", requireRole("manager", "admin"), async (req, res, next) => {
+// Delete: admin only (deals track revenue — sales shouldn't nuke own pipeline).
+dealsRouter.delete<{ id: string }>("/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const existing = await prisma.deal.findUnique({ where: { id: req.params.id } });
     await prisma.deal.delete({ where: { id: req.params.id } });

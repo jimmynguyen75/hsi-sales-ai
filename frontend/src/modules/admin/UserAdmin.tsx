@@ -10,14 +10,13 @@ interface AdminUser {
   id: string;
   name: string;
   email: string;
-  role: "sales" | "manager" | "admin";
+  role: "sales" | "admin";
   createdAt: string;
   _count: { accounts: number; deals: number };
 }
 
 const ROLE_COLOR: Record<string, string> = {
   admin: "bg-rose-50 text-rose-700 border-rose-200",
-  manager: "bg-indigo-50 text-indigo-700 border-indigo-200",
   sales: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
@@ -160,7 +159,7 @@ function UserDialog({
   const isEdit = user !== null;
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
-  const [role, setRole] = useState<"sales" | "manager" | "admin">(user?.role ?? "sales");
+  const [role, setRole] = useState<"sales" | "admin">(user?.role ?? "sales");
   const [password, setPassword] = useState("");
 
   const saveMut = useMutation({
@@ -238,7 +237,6 @@ function UserDialog({
                 className="w-full text-sm border border-slate-300 rounded px-2 py-1.5"
               >
                 <option value="sales">Sales</option>
-                <option value="manager">Manager</option>
                 <option value="admin">Admin</option>
               </select>
             </div>

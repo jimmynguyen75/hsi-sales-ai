@@ -30,19 +30,18 @@ interface NavItem {
   to: string;
   label: string;
   icon: typeof Users;
-  role?: "admin" | "manager"; // hide unless user has at least this role
+  role?: "admin"; // hide unless user has this role
 }
 
 interface NavGroup {
   title: string;
   items: NavItem[];
-  role?: "admin" | "manager";
+  role?: "admin";
 }
 
-function roleMeets(user: string | undefined, req: "admin" | "manager"): boolean {
+function roleMeets(user: string | undefined, req: "admin"): boolean {
   if (!user) return false;
-  if (req === "admin") return user === "admin";
-  return user === "admin" || user === "manager";
+  return user === req;
 }
 
 const groups: NavGroup[] = [

@@ -9,7 +9,7 @@ Unified internal web platform for the HSI (Hybrid Solutions & Infrastructure) sa
 - **DB**: PostgreSQL 16
 - **AI**: Groq (`llama-3.3-70b-versatile` by default) via `groq-sdk`
 - **Embeddings**: local ONNX MiniLM via `@xenova/transformers` (no API key needed)
-- **Auth**: JWT, role-based (sales / manager / admin)
+- **Auth**: JWT, role-based (sales / admin)
 
 ## Quick start (Docker)
 
@@ -25,7 +25,6 @@ Open http://localhost:5173. Demo logins:
 | Email            | Password   | Role    |
 | ---------------- | ---------- | ------- |
 | `jimmy@hpt.vn`   | `demo1234` | sales   |
-| `manager@hpt.vn` | `demo1234` | manager |
 | `admin@hpt.vn`   | `demo1234` | admin   |
 
 ## Quick start (local)
@@ -114,7 +113,7 @@ Every call is logged to the `AILog` table (tokens in/out, latency). Rate-limited
 
 ## Cross-cutting capabilities
 
-- **RBAC** — `requireRole("manager", "admin")` middleware; `ownerId` guards on per-user data (sales see only their own accounts/deals; managers & admins see all).
+- **RBAC** — `requireRole("admin")` middleware; `ownerId` guards on per-user data (sales see only their own accounts/deals; admins see all).
 - **Audit log** — every mutation on deals / quotations / proposals / emails / imports is written to `AuditLog` with denormalized user email + role. Viewer at `/admin/audit` (admin-only).
 - **Bulk CSV import** — `/api/import/accounts` and `/api/import/products` with two-step flow (dry-run preview → commit). Reusable `BulkImportDialog` component, sample CSV downloads at `/api/import/sample/*.csv`.
 - **Observability** — every request gets an `X-Request-Id` (echoed in response header and included in error bodies). Structured NDJSON logs with auto-propagated `requestId` + `userId` via AsyncLocalStorage. `GET /api/health` reports DB / AI / SMTP / embedding / uptime.

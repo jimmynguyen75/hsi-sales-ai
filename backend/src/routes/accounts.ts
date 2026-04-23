@@ -14,7 +14,7 @@ import {
 export const accountsRouter = Router();
 
 // GET /api/accounts — list with filters
-// RBAC: sales sees own accounts only; manager/admin see all.
+// RBAC: sales sees own accounts only; admin sees all.
 accountsRouter.get("/", async (req, res, next) => {
   try {
     const { q, industry, minHealth, maxHealth, size } = req.query as Record<string, string | undefined>;

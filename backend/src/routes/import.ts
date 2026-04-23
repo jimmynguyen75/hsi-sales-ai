@@ -2,7 +2,7 @@
  * Bulk CSV import endpoints.
  *
  * Two targets so far: accounts (any role can import own accounts) and
- * products (manager+ only — product catalog is shared).
+ * products (admin only — product catalog is shared).
  *
  * Flow: client uploads a CSV → `dryRun=true` returns a BulkReport with
  * validation errors and a preview; client confirms → `dryRun=false` writes
@@ -54,7 +54,7 @@ importRouter.post("/accounts", upload.single("file"), async (req, res, next) => 
 
 importRouter.post(
   "/products",
-  requireRole("manager", "admin"),
+  requireRole("admin"),
   upload.single("file"),
   async (req, res, next) => {
     try {

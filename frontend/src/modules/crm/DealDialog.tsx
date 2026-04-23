@@ -1,7 +1,7 @@
 /**
  * DealDialog — create OR edit a deal.
  *
- * Edit mode triggers PUT /api/deals/:id (RBAC: owner or manager+). Create
+ * Edit mode triggers PUT /api/deals/:id (RBAC: owner or admin). Create
  * mode POSTs to /api/deals with accountId.
  *
  * Date wrangling: backend uses ISO datetime, <input type="date"> uses

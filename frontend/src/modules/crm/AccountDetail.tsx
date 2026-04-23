@@ -113,10 +113,9 @@ export function AccountDetail() {
   }
 
   const aiError = summaryMut.error || nextActionMut.error || healthMut.error;
-  const canEditAccount =
-    user?.role === "admin" || user?.role === "manager" || account.ownerId === user?.id;
+  const canEditAccount = user?.role === "admin" || account.ownerId === user?.id;
   const canDeleteAccount = user?.role === "admin";
-  const canDeleteDeal = user?.role === "admin" || user?.role === "manager";
+  const canDeleteDeal = user?.role === "admin";
 
   return (
     <div className="flex h-full">

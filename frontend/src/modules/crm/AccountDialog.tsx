@@ -1,7 +1,7 @@
 /**
  * AccountDialog — create OR edit an account.
  *
- * Edit mode: PUT /api/accounts/:id (RBAC: owner or manager+).
+ * Edit mode: PUT /api/accounts/:id (RBAC: owner or admin).
  * Create mode: POST /api/accounts.
  *
  * Delete is not in this dialog — it's admin-only and wired into
