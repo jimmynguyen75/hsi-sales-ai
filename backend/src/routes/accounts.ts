@@ -91,6 +91,8 @@ const createSchema = z.object({
   website: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
+  // Accepted on update only; reassignment is admin-only (enforced in handler).
+  ownerId: z.string().optional(),
 });
 
 accountsRouter.post("/", async (req, res, next) => {
@@ -117,6 +119,17 @@ accountsRouter.put("/:id", async (req, res, next) => {
       return fail(res, 403, "Bạn không có quyền sửa account này.");
     }
     const input = updateSchema.parse(req.body);
+
+    // Reassignment guard: admin-only, and target user must exist.
+    const isReassign = input.ownerId && input.ownerId !== existing.ownerId;
+    if (isReassign) {
+      if (!canViewAll(req.userRole)) {
+        return fail(res, 403, "Chỉ admin mới có quyền chuyển owner account.");
+      }
+      const target = await prisma.user.findUnique({ where: { id: input.ownerId! } });
+      if (!target) return fail(res, 400, "User không tồn tại.");
+    }
+
     const account = await prisma.account.update({
       where: { id: req.params.id },
       data: input,

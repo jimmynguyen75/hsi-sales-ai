@@ -8,8 +8,10 @@
  * "YYYY-MM-DD". Convert both ways around the form.
  */
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Deal } from "@/lib/types";
+import type { Deal, User } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 
@@ -39,15 +41,27 @@ interface Props {
 }
 
 export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
+  const { user: me } = useAuth();
   const editing = !!deal;
+  // Owner reassignment is admin-only and only relevant in edit mode.
+  const canReassign = me?.role === "admin" && editing;
   const [title, setTitle] = useState("");
   const [stage, setStage] = useState("prospecting");
   const [value, setValue] = useState("");
   const [probability, setProbability] = useState("");
   const [vendor, setVendor] = useState("");
   const [expectedClose, setExpectedClose] = useState("");
+  const [ownerId, setOwnerId] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Team list for the Owner dropdown. `enabled: canReassign` avoids hitting
+  // /users when the section isn't shown — sales don't have permission anyway.
+  const { data: teamUsers } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => api.get<User[]>("/users"),
+    enabled: open && canReassign,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -57,6 +71,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
     setProbability(deal?.probability != null ? String(deal.probability) : "");
     setVendor(deal?.vendor ?? "");
     setExpectedClose(toDateInput(deal?.expectedClose));
+    setOwnerId(deal?.ownerId ?? "");
     setErr(null);
   }, [open, deal]);
 
@@ -68,7 +83,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
     setLoading(true);
     try {
       const isoClose = expectedClose ? new Date(expectedClose).toISOString() : null;
-      const payload = {
+      const payload: Record<string, unknown> = {
         title: title.trim(),
         stage,
         value: value ? Number(value) : null,
@@ -76,6 +91,11 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
         vendor: vendor || null,
         expectedClose: isoClose,
       };
+      // Only include ownerId when it actually changed — avoids tripping the
+      // backend reassign guard on every regular edit.
+      if (canReassign && ownerId && ownerId !== deal?.ownerId) {
+        payload.ownerId = ownerId;
+      }
       if (editing && deal) {
         await api.put(`/deals/${deal.id}`, payload);
       } else {
@@ -175,6 +195,32 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
               onChange={(e) => setExpectedClose(e.target.value)}
             />
           </div>
+          {canReassign && (
+            <div>
+              <Label>Owner (sales phụ trách)</Label>
+              <select
+                value={ownerId}
+                onChange={(e) => setOwnerId(e.target.value)}
+                className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+              >
+                {(teamUsers ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} — {u.email} {u.role === "admin" ? "(admin)" : ""}
+                  </option>
+                ))}
+                {/* Fallback so the current owner is always selectable even
+                    while the user list is loading or cached empty. */}
+                {!teamUsers && deal?.owner && (
+                  <option value={deal.owner.id}>{deal.owner.name}</option>
+                )}
+              </select>
+              {ownerId !== deal?.ownerId && (
+                <div className="mt-1 text-[11px] text-amber-600">
+                  Deal sẽ được chuyển cho sales mới. Sales cũ sẽ không còn thấy deal này.
+                </div>
+              )}
+            </div>
+          )}
           {err && (
             <div className="rounded bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>
           )}

@@ -52,6 +52,9 @@ const dealSchema = z.object({
   vendor: z.string().optional().nullable(),
   productLine: z.string().optional().nullable(),
   accountId: z.string(),
+  // Optional on both create + update. Reassignment via PUT is admin-only —
+  // guarded in the handler, not here, so the 403 message stays specific.
+  ownerId: z.string().optional(),
 });
 
 dealsRouter.post("/", async (req, res, next) => {
@@ -85,6 +88,19 @@ dealsRouter.put("/:id", async (req, res, next) => {
       return fail(res, 403, "Bạn không có quyền sửa deal này.");
     }
     const input = dealSchema.partial().parse(req.body);
+
+    // Reassignment guard: only admin can change ownerId. A sales rep
+    // transferring their own deal away from themselves would break the
+    // ownership invariant the /deals list relies on.
+    const isReassign = input.ownerId && input.ownerId !== existing.ownerId;
+    if (isReassign) {
+      if (!canViewAll(req.userRole)) {
+        return fail(res, 403, "Chỉ admin mới có quyền chuyển owner deal.");
+      }
+      const target = await prisma.user.findUnique({ where: { id: input.ownerId! } });
+      if (!target) return fail(res, 400, "User không tồn tại.");
+    }
+
     const deal = await prisma.deal.update({
       where: { id: req.params.id },
       data: {
@@ -98,12 +114,12 @@ dealsRouter.put("/:id", async (req, res, next) => {
       ["title", "stage", "value", "probability", "vendor", "expectedClose"],
     );
     const isStatus = input.stage && input.stage !== existing.stage;
-    await logAudit(req, {
-      action: isStatus ? "status_change" : "update",
-      entity: "deal",
-      entityId: deal.id,
-      summary: `"${deal.title}": ${changed}`,
-    });
+    // Reassign gets its own audit action so it's easy to spot in the log.
+    const action = isReassign ? "reassign" : isStatus ? "status_change" : "update";
+    const summary = isReassign
+      ? `Reassign "${deal.title}": ${existing.ownerId} → ${deal.ownerId}`
+      : `"${deal.title}": ${changed}`;
+    await logAudit(req, { action, entity: "deal", entityId: deal.id, summary });
     ok(res, deal);
   } catch (e) {
     next(e);

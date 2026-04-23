@@ -18,6 +18,7 @@ export type AuditAction =
   | "update"
   | "delete"
   | "status_change"
+  | "reassign"
   | "send"
   | "export";
 

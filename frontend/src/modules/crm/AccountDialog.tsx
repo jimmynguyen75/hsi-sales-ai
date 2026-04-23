@@ -8,8 +8,10 @@
  * AccountDetail's header.
  */
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Account } from "@/lib/types";
+import type { Account, User } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 
@@ -30,10 +32,19 @@ const EMPTY = {
 };
 
 export function AccountDialog({ open, account, onClose, onSaved }: Props) {
+  const { user: me } = useAuth();
   const editing = !!account;
+  const canReassign = me?.role === "admin" && editing;
   const [form, setForm] = useState(EMPTY);
+  const [ownerId, setOwnerId] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const { data: teamUsers } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => api.get<User[]>("/users"),
+    enabled: open && canReassign,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -46,8 +57,10 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
         address: account.address ?? "",
         notes: account.notes ?? "",
       });
+      setOwnerId(account.ownerId ?? "");
     } else {
       setForm(EMPTY);
+      setOwnerId("");
     }
     setErr(null);
   }, [open, account]);
@@ -60,7 +73,13 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
     setLoading(true);
     try {
       if (editing && account) {
-        await api.put(`/accounts/${account.id}`, form);
+        // Send ownerId only when admin changed it — skips the backend
+        // reassign guard on plain edits (same-value reassign is a no-op).
+        const payload: Record<string, unknown> = { ...form };
+        if (canReassign && ownerId && ownerId !== account.ownerId) {
+          payload.ownerId = ownerId;
+        }
+        await api.put(`/accounts/${account.id}`, payload);
       } else {
         await api.post("/accounts", form);
       }
@@ -140,6 +159,30 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
               rows={3}
             />
           </div>
+          {canReassign && (
+            <div>
+              <Label>Owner (sales phụ trách)</Label>
+              <select
+                value={ownerId}
+                onChange={(e) => setOwnerId(e.target.value)}
+                className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+              >
+                {(teamUsers ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} — {u.email} {u.role === "admin" ? "(admin)" : ""}
+                  </option>
+                ))}
+                {!teamUsers && account?.owner && (
+                  <option value={account.owner.id}>{account.owner.name}</option>
+                )}
+              </select>
+              {ownerId !== account?.ownerId && (
+                <div className="mt-1 text-[11px] text-amber-600">
+                  Account (cùng contacts / deals / activities) sẽ được chuyển cho sales mới.
+                </div>
+              )}
+            </div>
+          )}
           {err && (
             <div className="rounded bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>
           )}
