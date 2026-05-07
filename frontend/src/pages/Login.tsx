@@ -56,7 +56,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(e, p);
-      nav("/crm");
+      nav("/dashboard");
     } catch (err) {
       setErr(err instanceof Error ? err.message : "Login failed");
     } finally {

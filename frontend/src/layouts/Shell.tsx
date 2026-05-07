@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
+  LayoutDashboard,
   Users,
   Activity,
   Briefcase,
@@ -45,6 +46,10 @@ function roleMeets(user: string | undefined, req: "admin"): boolean {
 }
 
 const groups: NavGroup[] = [
+  {
+    title: "Tổng quan",
+    items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
   {
     title: "Khách hàng & Pipeline",
     items: [

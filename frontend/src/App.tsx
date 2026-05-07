@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { Shell } from "@/layouts/Shell";
 import { LoginPage } from "@/pages/Login";
 import { ComingSoon } from "@/pages/ComingSoon";
+import { Dashboard } from "@/modules/dashboard/Dashboard";
 import { AccountList } from "@/modules/crm/AccountList";
 import { AccountDetail } from "@/modules/crm/AccountDetail";
 import { PipelineView } from "@/modules/pipeline/PipelineView";
@@ -44,7 +45,7 @@ function Protected({ children }: { children: React.ReactNode }) {
 function AdminOnly({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/crm" replace />;
+  if (user.role !== "admin") return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -61,7 +62,8 @@ export default function App() {
             </Protected>
           }
         >
-          <Route index element={<Navigate to="/crm" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
           <Route path="crm" element={<AccountList />} />
           <Route path="crm/:id" element={<AccountDetail />} />
           <Route path="pipeline" element={<PipelineView />} />
