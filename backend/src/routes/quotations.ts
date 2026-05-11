@@ -112,7 +112,14 @@ interface LineItem {
   vendor?: string;
   qty: number;
   unitPrice: number;
-  discount: number; // per-line %
+  // Cost from the partner/vendor for one unit. Snapshot at add-time so margin
+  // calculation stays stable even if the product catalog price changes later.
+  // Optional because some items (services, custom work) won't have a real
+  // partner cost.
+  partnerCost?: number | null;
+  // Kept for back-compat with quotations created before margin replaced
+  // discount; new quotations leave it at 0.
+  discount: number;
   unit?: string;
   lineTotal: number;
 }
@@ -123,17 +130,32 @@ function lid(): string {
 
 function recompute(
   items: LineItem[],
-  overallDiscount: number,
+  _overallDiscount: number,
   tax: number,
 ): { items: LineItem[]; subtotal: number; total: number } {
+  // Quotations now compute purely from qty × unitPrice — no line or overall
+  // discount applied. Sales team works on margin (sell vs partner cost), not
+  // on customer-facing discount, so the price typed IS the price quoted.
+  //
+  // Legacy migration: pre-existing quotations may have line items with a
+  // non-zero discount. Fold it into unitPrice so the displayed dollar amount
+  // stays the same after the user touches the quotation, then reset discount
+  // to 0. This is a one-way migration on save.
   const recalced = items.map((it) => {
-    const base = it.qty * it.unitPrice;
-    const afterLineDisc = base * (1 - (it.discount || 0) / 100);
-    return { ...it, lineTotal: Math.round(afterLineDisc) };
+    const lineDiscount = it.discount ?? 0;
+    const effectiveUnit =
+      lineDiscount > 0
+        ? Math.round(it.unitPrice * (1 - lineDiscount / 100))
+        : it.unitPrice;
+    return {
+      ...it,
+      unitPrice: effectiveUnit,
+      discount: 0,
+      lineTotal: Math.round(it.qty * effectiveUnit),
+    };
   });
   const subtotal = recalced.reduce((s, it) => s + it.lineTotal, 0);
-  const afterDiscount = subtotal * (1 - (overallDiscount || 0) / 100);
-  const total = Math.round(afterDiscount * (1 + (tax || 0) / 100));
+  const total = Math.round(subtotal * (1 + (tax || 0) / 100));
   return { items: recalced, subtotal: Math.round(subtotal), total };
 }
 
@@ -219,6 +241,9 @@ const lineItemSchema = z.object({
   vendor: z.string().optional(),
   qty: z.number().positive(),
   unitPrice: z.number().nonnegative(),
+  // Partner cost — used to derive margin % on the UI. Optional.
+  partnerCost: z.number().nonnegative().optional().nullable(),
+  // Legacy field, retained for old payloads; new quotations don't use it.
   discount: z.number().min(0).max(100).optional(),
   unit: z.string().optional(),
 });
@@ -263,6 +288,7 @@ quotationsRouter.put("/:id", async (req, res, next) => {
         vendor: it.vendor,
         qty: it.qty,
         unitPrice: it.unitPrice,
+        partnerCost: it.partnerCost ?? null,
         discount: it.discount ?? 0,
         unit: it.unit,
         lineTotal: 0,

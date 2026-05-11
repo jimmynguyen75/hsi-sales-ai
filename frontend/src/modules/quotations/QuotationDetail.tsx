@@ -112,6 +112,9 @@ export function QuotationDetail() {
       vendor: p.vendor,
       qty: 1,
       unitPrice: p.listPrice,
+      // Snapshot the partner cost at add-time so margin% renders correctly
+      // and stays stable if the product catalog price moves later.
+      partnerCost: p.partnerCost ?? null,
       discount: 0,
       unit: p.unit,
       lineTotal: 0,
@@ -307,7 +310,12 @@ export function QuotationDetail() {
                 <th className="text-left px-3 py-2 font-medium">Vendor</th>
                 <th className="text-right px-3 py-2 font-medium">SL</th>
                 <th className="text-right px-3 py-2 font-medium">Đơn giá</th>
-                <th className="text-right px-3 py-2 font-medium">% CK</th>
+                <th
+                  className="text-right px-3 py-2 font-medium"
+                  title="Tỷ suất lãi gộp = (Đơn giá - Giá partner) / Đơn giá"
+                >
+                  Margin %
+                </th>
                 <th className="text-right px-3 py-2 font-medium">Thành tiền</th>
                 <th className="print:hidden"></th>
               </tr>
@@ -355,23 +363,57 @@ export function QuotationDetail() {
                     <div className="text-[10px] text-slate-400">{it.unit ?? "unit"}</div>
                   </td>
                   <td className="px-3 py-2 text-right">
+                    {/* Text input + manual parse so the user sees thousand
+                        separators while typing. type="number" doesn't allow
+                        commas, so we strip them on the way in and re-format
+                        the display via toLocaleString on every render. */}
                     <input
-                      type="number"
-                      min={0}
-                      value={it.unitPrice}
-                      onChange={(e) => updateItem(it.id, { unitPrice: Number(e.target.value) || 0 })}
-                      className="w-32 text-right bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
+                      type="text"
+                      inputMode="numeric"
+                      value={it.unitPrice ? it.unitPrice.toLocaleString("vi-VN") : ""}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/[^\d]/g, "");
+                        updateItem(it.id, { unitPrice: cleaned ? parseInt(cleaned, 10) : 0 });
+                      }}
+                      placeholder="0"
+                      className="w-36 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
                     />
+                    {it.partnerCost != null && it.partnerCost > 0 && (
+                      <div
+                        className="text-[10px] text-slate-400 tabular-nums"
+                        title="Giá partner (cost)"
+                      >
+                        cost {it.partnerCost.toLocaleString("vi-VN")}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={it.discount}
-                      onChange={(e) => updateItem(it.id, { discount: Number(e.target.value) || 0 })}
-                      className="w-14 text-right bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
-                    />
+                    {/* Margin = (sell - cost) / sell. Read-only — derived from
+                        unitPrice and the snapshotted partnerCost. To change
+                        margin, edit the unit price. */}
+                    {(() => {
+                      const cost = it.partnerCost ?? null;
+                      if (cost == null || cost === 0 || it.unitPrice === 0) {
+                        return <span className="text-xs text-slate-300">—</span>;
+                      }
+                      const margin = ((it.unitPrice - cost) / it.unitPrice) * 100;
+                      const color =
+                        margin >= 20
+                          ? "text-emerald-700 bg-emerald-50"
+                          : margin >= 10
+                            ? "text-amber-700 bg-amber-50"
+                            : margin >= 0
+                              ? "text-orange-700 bg-orange-50"
+                              : "text-rose-700 bg-rose-50";
+                      return (
+                        <span
+                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium tabular-nums ${color}`}
+                          title={`Sell ${it.unitPrice.toLocaleString("vi-VN")} − cost ${cost.toLocaleString("vi-VN")}`}
+                        >
+                          {margin.toFixed(1)}%
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-2 text-right font-medium text-slate-900 whitespace-nowrap">
                     {formatVND(it.lineTotal)}
@@ -406,20 +448,12 @@ export function QuotationDetail() {
 
         <Card className="print:border-0 print:shadow-none">
           <CardBody className="space-y-2 text-sm">
+            {/* Subtotal = Σ(qty × unitPrice). No overall discount — sales
+                reps work on margin, the per-line unit price IS the quoted
+                price. See routes/quotations.ts recompute(). */}
             <div className="flex justify-between">
               <span className="text-slate-600">Subtotal</span>
-              <span className="font-medium">{formatVND(q.subtotal)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-600">Chiết khấu tổng (%)</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={q.discount}
-                onChange={(e) => saveMut.mutate({ discount: Number(e.target.value) || 0 })}
-                className="w-16 text-right border border-slate-200 rounded px-2 py-0.5 text-sm print:border-0"
-              />
+              <span className="font-medium tabular-nums">{formatVND(q.subtotal)}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-600">VAT (%)</span>
@@ -432,9 +466,39 @@ export function QuotationDetail() {
                 className="w-16 text-right border border-slate-200 rounded px-2 py-0.5 text-sm print:border-0"
               />
             </div>
+            {/* Aggregate margin across all line items that have a partnerCost.
+                Read-only summary so the rep sees overall profitability before
+                sending the quotation out. */}
+            {(() => {
+              const withCost = q.items.filter(
+                (it) => it.partnerCost != null && it.partnerCost > 0,
+              );
+              if (withCost.length === 0) return null;
+              const totalSell = withCost.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+              const totalCost = withCost.reduce(
+                (s, it) => s + it.qty * (it.partnerCost ?? 0),
+                0,
+              );
+              if (totalSell === 0) return null;
+              const margin = ((totalSell - totalCost) / totalSell) * 100;
+              const tone =
+                margin >= 20
+                  ? "text-emerald-700"
+                  : margin >= 10
+                    ? "text-amber-700"
+                    : "text-rose-700";
+              return (
+                <div className="flex justify-between items-center pt-1 text-xs">
+                  <span className="text-slate-500">Margin trung bình</span>
+                  <span className={`font-medium tabular-nums ${tone}`}>
+                    {margin.toFixed(1)}%
+                  </span>
+                </div>
+              );
+            })()}
             <div className="flex justify-between pt-2 border-t border-slate-200 text-base">
               <span className="font-semibold">Tổng cộng</span>
-              <span className="font-bold text-brand-700">{formatVND(q.total)}</span>
+              <span className="font-bold text-brand-700 tabular-nums">{formatVND(q.total)}</span>
             </div>
             <div className="text-[11px] text-slate-400">{q.currency}</div>
           </CardBody>

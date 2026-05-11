@@ -327,6 +327,9 @@ export interface QuotationLineItem {
   vendor?: string;
   qty: number;
   unitPrice: number;
+  /** Partner/vendor cost per unit — used to derive margin %. */
+  partnerCost?: number | null;
+  /** Legacy field, kept for back-compat with old quotations. */
   discount: number;
   unit?: string;
   lineTotal: number;
