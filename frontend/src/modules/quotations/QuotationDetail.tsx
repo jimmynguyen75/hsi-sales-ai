@@ -10,6 +10,7 @@ import {
   Search,
   FileDown,
   FileText,
+  FileSpreadsheet,
 } from "lucide-react";
 import { api, downloadFile } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -41,6 +42,7 @@ export function QuotationDetail() {
   const [showPicker, setShowPicker] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
 
   const { data: q, isLoading } = useQuery({
     queryKey: ["quotation", id],
@@ -169,6 +171,28 @@ export function QuotationDetail() {
           >
             <FileText className="h-3.5 w-3.5" />
             DOCX
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={downloadingXlsx}
+            disabled={downloadingXlsx || q.items.length === 0}
+            title="Xuất Excel theo template HPT"
+            onClick={async () => {
+              if (!q) return;
+              setDownloadingXlsx(true);
+              try {
+                await downloadFile(`/quotations/${q.id}/export.xlsx`, `${q.number}.xlsx`);
+                toast.success("Đã tải XLSX");
+              } catch (err) {
+                toast.error("Tải XLSX thất bại", err instanceof Error ? err.message : String(err));
+              } finally {
+                setDownloadingXlsx(false);
+              }
+            }}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            XLSX
           </Button>
           <Button variant="ghost" size="sm" onClick={() => window.print()}>
             <Printer className="h-3.5 w-3.5" />

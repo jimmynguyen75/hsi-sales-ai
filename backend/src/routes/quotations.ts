@@ -4,7 +4,11 @@ import { prisma } from "../lib/prisma.js";
 import { ok } from "../lib/response.js";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { suggestBOM } from "../services/quotation-ai.js";
-import { renderQuotationPDF, renderQuotationDOCX } from "../services/document-export.js";
+import {
+  renderQuotationPDF,
+  renderQuotationDOCX,
+  renderQuotationXLSX,
+} from "../services/document-export.js";
 import { logAudit, diffSummary } from "../services/audit.js";
 import type { Prisma } from "@prisma/client";
 
@@ -33,6 +37,39 @@ quotationsRouter.get("/:id/export.pdf", async (req, res, next) => {
       entity: "quotation",
       entityId: quotation.id,
       summary: `Xuất PDF quotation ${quotation.number}`,
+    });
+    res.end(buf);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/quotations/:id/export.xlsx — HPT-template Excel
+quotationsRouter.get("/:id/export.xlsx", async (req, res, next) => {
+  try {
+    const userId = (req as AuthedRequest).userId;
+    const quotation = await prisma.quotation.findUnique({ where: { id: req.params.id } });
+    if (!quotation || quotation.ownerId !== userId)
+      return res.status(404).json({ success: false, error: "Not found" });
+    const account = quotation.accountId
+      ? await prisma.account.findUnique({ where: { id: quotation.accountId } })
+      : null;
+
+    const buf = await renderQuotationXLSX(quotation, account);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${quotation.number}.xlsx"`,
+    );
+    res.setHeader("Content-Length", buf.length.toString());
+    await logAudit(req, {
+      action: "export",
+      entity: "quotation",
+      entityId: quotation.id,
+      summary: `Xuất XLSX quotation ${quotation.number}`,
     });
     res.end(buf);
   } catch (e) {

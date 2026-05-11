@@ -602,3 +602,356 @@ export async function renderQuotationDOCX(
 
   return Packer.toBuffer(doc);
 }
+
+// =========================================================================
+// XLSX renderer — matches the HPT-CRV Fortinet Renewal sample layout.
+// =========================================================================
+//
+// Design choices:
+// - Single sheet "HPT", 7 columns A:G — same column widths as the sample.
+// - Flat item list (no "Option Renew X Years" groups). The schema only
+//   carries a flat array of line items, so trying to fake groups would just
+//   be heuristics. One table + one set of totals matches what's in the data.
+// - Currency format "#,##0" with "-" for zero — matches the sample's accounting
+//   style. VAT per line = lineTotal × (tax%). If quotation.tax = 0 (software
+//   case), every VAT cell renders as "-".
+// - Vietnamese number-to-words for the "(In Words: ...)" line.
+// - HPT signatory block + bank info hardcoded — internal tool, single org.
+
+import ExcelJS from "exceljs";
+
+const GREEN_FILL = "FF92D050";
+const NAVY = "FF002060";
+const BLUE_TOTAL = "FF0070C0";
+const MONEY_FMT = '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)';
+
+/** Convert a positive integer (VND) into Vietnamese words. Returns capitalized
+ *  phrase ending with "đồng" — matches local quotation conventions. */
+function vndInWords(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "Không đồng";
+  const digits = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
+  const readGroup = (g: number, isLeading: boolean): string => {
+    const hundreds = Math.floor(g / 100);
+    const tens = Math.floor((g % 100) / 10);
+    const ones = g % 10;
+    const parts: string[] = [];
+    if (hundreds > 0 || !isLeading) parts.push(`${digits[hundreds]} trăm`);
+    if (tens > 1) {
+      parts.push(`${digits[tens]} mươi`);
+      if (ones === 1) parts.push("mốt");
+      else if (ones === 5) parts.push("lăm");
+      else if (ones > 0) parts.push(digits[ones]);
+    } else if (tens === 1) {
+      parts.push("mười");
+      if (ones === 5) parts.push("lăm");
+      else if (ones > 0) parts.push(digits[ones]);
+    } else if (tens === 0 && ones > 0) {
+      if (!isLeading || hundreds > 0) parts.push("lẻ");
+      parts.push(digits[ones]);
+    }
+    return parts.join(" ").trim();
+  };
+  const scales = ["", "nghìn", "triệu", "tỷ"];
+  const groups: number[] = [];
+  let rest = Math.floor(n);
+  while (rest > 0) {
+    groups.push(rest % 1000);
+    rest = Math.floor(rest / 1000);
+  }
+  // groups[0] is the lowest-order group; iterate from highest to lowest.
+  const out: string[] = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    if (g === 0) continue;
+    const isLeading = i === groups.length - 1;
+    out.push(readGroup(g, isLeading));
+    if (scales[i]) out.push(scales[i]);
+  }
+  const phrase = out.join(" ").trim();
+  // Capitalize first letter, append " đồng./."
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1) + " đồng./.";
+}
+
+export async function renderQuotationXLSX(
+  quotation: Quotation,
+  account: Account | null,
+): Promise<Buffer> {
+  const items = (quotation.items ?? []) as unknown as QuotationItem[];
+  const taxPct = quotation.tax ?? 0;
+  const overallDiscount = quotation.discount ?? 0;
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "HSI Sales AI";
+  wb.created = new Date();
+  const ws = wb.addWorksheet("HPT");
+
+  // Column widths — copied from the sample.
+  const widths = [6.6, 59.7, 5.4, 18, 18.3, 13.7, 16.4];
+  ws.columns = widths.map((w) => ({ width: w }));
+
+  const arial = (size: number, opts: Partial<ExcelJS.Font> = {}) => ({
+    name: "Arial",
+    size,
+    ...opts,
+  });
+  const thinAll = {
+    top: { style: "thin" as const },
+    bottom: { style: "thin" as const },
+    left: { style: "thin" as const },
+    right: { style: "thin" as const },
+  };
+  const headerBorder = (sidePos: "first" | "middle" | "last"): Partial<ExcelJS.Borders> => ({
+    top: { style: "medium" },
+    bottom: { style: "thin" },
+    left: { style: sidePos === "first" ? "medium" : "thin" },
+    right: { style: sidePos === "last" ? "medium" : "thin" },
+  });
+
+  // Row 1: HPT company info (right column block).
+  ws.mergeCells("B1:G1");
+  const b1 = ws.getCell("B1");
+  b1.value =
+    "HPT VIETNAM CORPORATION\n" +
+    "HPT SYSTEM INTEGRATION\n" +
+    "Office: Lot E2a-3, D1 St., Saigon High Tech Park, Tang Nhon Phu Ward, HCMC, Vietnam\n" +
+    "Tel: + (84 28) 54 123 400 • Fax: + (84 28) 54 108 801 • Website: www.hpt.vn";
+  b1.font = arial(9, { bold: true });
+  b1.alignment = { horizontal: "right", vertical: "top", wrapText: true };
+  ws.getRow(1).height = 48;
+
+  // Row 2: "QUOTATION" title, navy.
+  ws.mergeCells("A2:G2");
+  const a2 = ws.getCell("A2");
+  a2.value = "QUOTATION";
+  a2.font = arial(20, { bold: true, color: { argb: NAVY } });
+  a2.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(2).height = 38;
+
+  // Row 3: To / Date
+  ws.getCell("B3").value = `To: ${account?.companyName ?? "—"}`;
+  ws.getCell("B3").font = arial(10, { bold: true });
+  ws.getCell("F3").value = "Date:";
+  ws.getCell("F3").font = arial(10, { bold: true });
+  ws.getCell("F3").alignment = { horizontal: "right" };
+  ws.getCell("G3").value = vndDate(quotation.createdAt);
+  ws.getCell("G3").font = arial(10);
+
+  // Row 4: RFP / Valid until
+  ws.getCell("B4").value = `RFP: ${quotation.title}`;
+  ws.getCell("B4").font = arial(10, { bold: true });
+  ws.getCell("F4").value = "Valid until: ";
+  ws.getCell("F4").font = arial(10, { bold: true });
+  ws.getCell("F4").alignment = { horizontal: "right" };
+  ws.getCell("G4").value = quotation.validUntil ? vndDate(quotation.validUntil) : "—";
+  ws.getCell("G4").font = arial(10);
+
+  // Row 5: intro
+  ws.mergeCells("A5:G5");
+  const a5 = ws.getCell("A5");
+  a5.value = "We would like to offer the required products with our prices and specifications as follows:";
+  a5.font = arial(10);
+
+  // Row 7: table header (green).
+  const headerRow = 7;
+  ws.getRow(headerRow).height = 26.45;
+  const headers = [
+    "No",
+    "Product Description",
+    "Qty",
+    "Unit Price Before\nVAT (VNĐ)",
+    "Tolal Before VAT (VNĐ)",
+    "VAT (VNĐ)",
+    "Total After\nVAT (VNĐ)",
+  ];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(headerRow, i + 1);
+    cell.value = h;
+    cell.font = arial(10, { bold: true });
+    cell.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN_FILL } };
+    cell.border = headerBorder(
+      i === 0 ? "first" : i === headers.length - 1 ? "last" : "middle",
+    );
+  });
+
+  // Item rows.
+  let row = headerRow + 1;
+  const firstItemRow = row;
+  items.forEach((it, idx) => {
+    // Compose product description: name (bold-ish) + vendor + description.
+    const descLines: string[] = [it.name];
+    if (it.vendor) descLines.push(it.vendor);
+    if (it.description) descLines.push(it.description);
+    const desc = descLines.join("\n");
+
+    const lineBeforeVAT = it.lineTotal; // after line discount
+    const lineVAT = Math.round(lineBeforeVAT * (taxPct / 100));
+    const lineTotal = lineBeforeVAT + lineVAT;
+
+    const cells = [
+      idx + 1,
+      desc,
+      it.qty,
+      it.unitPrice,
+      lineBeforeVAT,
+      lineVAT,
+      lineTotal,
+    ];
+    cells.forEach((v, i) => {
+      const cell = ws.getCell(row, i + 1);
+      cell.value = v;
+      cell.font = arial(10);
+      cell.border = thinAll;
+      if (i === 1) {
+        cell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+      } else if (i === 0 || i === 2) {
+        cell.alignment = { horizontal: "center", vertical: "top" };
+      } else {
+        cell.alignment = { horizontal: "right", vertical: "top" };
+        cell.numFmt = MONEY_FMT;
+      }
+    });
+    // Make tall enough for multi-line description.
+    const lineCount = desc.split("\n").length;
+    ws.getRow(row).height = Math.max(20, 15 * lineCount);
+    row++;
+  });
+  if (items.length === 0) {
+    // Empty placeholder row so the table still renders sensibly.
+    for (let i = 1; i <= 7; i++) ws.getCell(row, i).border = thinAll;
+    row++;
+  }
+  const lastItemRow = row - 1;
+
+  // Totals block — 3 rows, merged A:D as label, right column shows value.
+  const totalsBeforeVAT = items.reduce((s, it) => s + it.lineTotal, 0);
+  const subtotalAfterOverall = Math.round(totalsBeforeVAT * (1 - overallDiscount / 100));
+  const totalVAT = Math.round(subtotalAfterOverall * (taxPct / 100));
+  const grandTotal = subtotalAfterOverall + totalVAT;
+
+  const totalRows: Array<{ label: string; col: "E" | "F" | "G"; value: number }> = [
+    { label: "Total Before VAT (VNĐ):", col: "E", value: subtotalAfterOverall },
+    { label: "VAT (VNĐ):", col: "F", value: totalVAT },
+    { label: "Total After VAT (VNĐ):", col: "G", value: grandTotal },
+  ];
+  const totalsStart = row;
+  totalRows.forEach((t) => {
+    ws.mergeCells(`A${row}:D${row}`);
+    const labelCell = ws.getCell(`A${row}`);
+    labelCell.value = t.label;
+    labelCell.font = arial(10, { bold: true, color: { argb: BLUE_TOTAL } });
+    labelCell.alignment = { horizontal: "right", vertical: "top", wrapText: true };
+    labelCell.border = thinAll;
+
+    // Apply borders to the merged-over cells too so the outline stays clean.
+    for (const c of ["B", "C", "D"] as const) ws.getCell(`${c}${row}`).border = thinAll;
+
+    // Empty cells in untouched currency columns (still border them).
+    (["E", "F", "G"] as const).forEach((col) => {
+      const cell = ws.getCell(`${col}${row}`);
+      cell.font = arial(10, { bold: true, color: { argb: BLUE_TOTAL } });
+      cell.alignment = { horizontal: "right", vertical: "top" };
+      cell.border = thinAll;
+      cell.numFmt = MONEY_FMT;
+      if (col === t.col) cell.value = t.value;
+    });
+    row++;
+  });
+  // Outer medium border on the totals + header block.
+  for (let r = headerRow; r < totalsStart + totalRows.length; r++) {
+    const left = ws.getCell(r, 1);
+    const right = ws.getCell(r, 7);
+    left.border = { ...left.border, left: { style: "medium" } };
+    right.border = { ...right.border, right: { style: "medium" } };
+  }
+
+  // "In Words" line, merged A:G.
+  ws.mergeCells(`A${row}:G${row}`);
+  const inWords = ws.getCell(`A${row}`);
+  inWords.value = `(In Words: ${vndInWords(grandTotal)})`;
+  inWords.font = arial(10, { italic: true });
+  inWords.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+  row++;
+
+  // Spacer
+  row++;
+
+  // Terms & conditions
+  ws.getCell(`A${row}`).value = "TERMS & CONDITIONS:";
+  ws.getCell(`A${row}`).font = arial(10, { bold: true });
+  row++;
+  const terms = [
+    "1. At present, software is not subject to VAT.",
+    "    In case, the Government change VAT rate at the time of issue tax invoice, VAT is subject to the new VAT rate.",
+    "2. Payment: T/T or cash.",
+    "    2.1.  Payment term: 100% within 30 days after the completion of software delivery and receipt of payment document.",
+    "    2.2.  Account number of HPT Vietnam as follows:",
+    "    HPT VietNam Corp.",
+    "    Account No.: 3150763149 VND",
+    "    Bank: Joint Stock Commercial Bank for Investment and Development of Vietnam (BIDV) – Phu Nhuan Branch",
+    "3. Delivery time: 02 to 03 weeks",
+  ];
+  terms.forEach((t) => {
+    ws.getCell(`B${row}`).value = t;
+    ws.getCell(`B${row}`).font = arial(10);
+    ws.getCell(`B${row}`).alignment = { vertical: "top", wrapText: true };
+    row++;
+  });
+
+  // Notes from the quotation (optional).
+  if (quotation.notes) {
+    row++;
+    ws.getCell(`A${row}`).value = "NOTES:";
+    ws.getCell(`A${row}`).font = arial(10, { bold: true });
+    row++;
+    ws.mergeCells(`A${row}:G${row}`);
+    const notesCell = ws.getCell(`A${row}`);
+    notesCell.value = quotation.notes;
+    notesCell.font = arial(10);
+    notesCell.alignment = { vertical: "top", wrapText: true };
+    row++;
+  }
+
+  // Spacer + closing
+  row++;
+  ws.getCell(`A${row}`).value =
+    "Thank you for your attention. Please feel free to contact us for any further information.";
+  ws.getCell(`A${row}`).font = arial(10);
+  row++;
+  ws.getCell(`A${row}`).value = "Yours Sincerely,";
+  ws.getCell(`A${row}`).font = arial(10);
+  row += 3;
+
+  // Signature block: HPT side (B) + Customer side (F)
+  ws.getCell(`B${row}`).value = "On behalf of HPT";
+  ws.getCell(`B${row}`).font = arial(10, { bold: true });
+  ws.getCell(`B${row}`).alignment = { horizontal: "center" };
+  ws.getCell(`F${row}`).value = "Customer's confirmation";
+  ws.getCell(`F${row}`).font = arial(10, { bold: true });
+  ws.getCell(`F${row}`).alignment = { horizontal: "center" };
+  row++;
+  ws.getCell(`B${row}`).value = "DEPUTY CEO";
+  ws.getCell(`B${row}`).font = arial(10, { bold: true });
+  ws.getCell(`B${row}`).alignment = { horizontal: "center" };
+  row += 6;
+  ws.getCell(`B${row}`).value = "NGUYEN QUYEN";
+  ws.getCell(`B${row}`).font = arial(10, { bold: true });
+  ws.getCell(`B${row}`).alignment = { horizontal: "center" };
+
+  // Page setup so print preview matches the look-and-feel.
+  ws.pageSetup = {
+    orientation: "portrait",
+    paperSize: 9, // A4
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+  };
+
+  // Quiet unused-warning belt-and-suspenders for first/last item references.
+  void firstItemRow;
+  void lastItemRow;
+
+  const arrayBuf = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuf as ArrayBuffer);
+}
