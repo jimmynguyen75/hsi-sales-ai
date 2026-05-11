@@ -363,55 +363,101 @@ export function QuotationDetail() {
                     <div className="text-[10px] text-slate-400">{it.unit ?? "unit"}</div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Text input + manual parse so the user sees thousand
-                        separators while typing. type="number" doesn't allow
-                        commas, so we strip them on the way in and re-format
-                        the display via toLocaleString on every render. */}
+                    {/* Đơn giá = unit price quoted to customer. Text input
+                        so we can show thousand separators while typing. */}
                     <input
                       type="text"
                       inputMode="numeric"
                       value={it.unitPrice ? it.unitPrice.toLocaleString("vi-VN") : ""}
                       onChange={(e) => {
                         const cleaned = e.target.value.replace(/[^\d]/g, "");
-                        updateItem(it.id, { unitPrice: cleaned ? parseInt(cleaned, 10) : 0 });
+                        updateItem(it.id, {
+                          unitPrice: cleaned ? parseInt(cleaned, 10) : 0,
+                        });
                       }}
                       placeholder="0"
                       className="w-36 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
                     />
-                    {it.partnerCost != null && it.partnerCost > 0 && (
-                      <div
-                        className="text-[10px] text-slate-400 tabular-nums"
-                        title="Giá partner (cost)"
-                      >
-                        cost {it.partnerCost.toLocaleString("vi-VN")}
-                      </div>
-                    )}
+                    {/* Cost input — sub-line. Editable so reps can type
+                        partner cost for blank items, or override the
+                        snapshot from the product catalog. */}
+                    <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400 print:hidden">
+                      <span>cost</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={
+                          it.partnerCost != null && it.partnerCost > 0
+                            ? it.partnerCost.toLocaleString("vi-VN")
+                            : ""
+                        }
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^\d]/g, "");
+                          updateItem(it.id, {
+                            partnerCost: cleaned ? parseInt(cleaned, 10) : null,
+                          });
+                        }}
+                        placeholder="—"
+                        className="w-28 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 text-[10px]"
+                      />
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Margin = (sell - cost) / sell. Read-only — derived from
-                        unitPrice and the snapshotted partnerCost. To change
-                        margin, edit the unit price. */}
+                    {/* Margin = (sell - cost) / sell. Editable: typing a new
+                        margin recomputes unitPrice = cost / (1 - margin/100).
+                        Disabled when there's no cost — margin without cost
+                        is undefined. */}
                     {(() => {
                       const cost = it.partnerCost ?? null;
-                      if (cost == null || cost === 0 || it.unitPrice === 0) {
-                        return <span className="text-xs text-slate-300">—</span>;
-                      }
-                      const margin = ((it.unitPrice - cost) / it.unitPrice) * 100;
+                      const hasCost = cost != null && cost > 0;
+                      const margin =
+                        hasCost && it.unitPrice > 0
+                          ? ((it.unitPrice - (cost as number)) / it.unitPrice) * 100
+                          : null;
                       const color =
-                        margin >= 20
-                          ? "text-emerald-700 bg-emerald-50"
-                          : margin >= 10
-                            ? "text-amber-700 bg-amber-50"
-                            : margin >= 0
-                              ? "text-orange-700 bg-orange-50"
-                              : "text-rose-700 bg-rose-50";
+                        margin == null
+                          ? "text-slate-300"
+                          : margin >= 20
+                            ? "text-emerald-700"
+                            : margin >= 10
+                              ? "text-amber-700"
+                              : margin >= 0
+                                ? "text-orange-700"
+                                : "text-rose-700";
                       return (
-                        <span
-                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium tabular-nums ${color}`}
-                          title={`Sell ${it.unitPrice.toLocaleString("vi-VN")} − cost ${cost.toLocaleString("vi-VN")}`}
-                        >
-                          {margin.toFixed(1)}%
-                        </span>
+                        <div className="inline-flex items-center gap-0.5 justify-end">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            disabled={!hasCost}
+                            value={margin == null ? "" : margin.toFixed(1)}
+                            onChange={(e) => {
+                              if (!hasCost) return;
+                              // Allow digits, one minus, one dot.
+                              const cleaned = e.target.value.replace(
+                                /[^\d.\-]/g,
+                                "",
+                              );
+                              if (cleaned === "" || cleaned === "-" || cleaned === ".") return;
+                              const m = parseFloat(cleaned);
+                              if (Number.isNaN(m)) return;
+                              if (m >= 100) return; // ≥100% margin is undefined for positive cost
+                              // sell = cost / (1 - margin/100)
+                              const newUnit = Math.round(
+                                (cost as number) / (1 - m / 100),
+                              );
+                              updateItem(it.id, { unitPrice: newUnit });
+                            }}
+                            placeholder="—"
+                            title={
+                              hasCost
+                                ? `Gõ để đổi margin — đơn giá sẽ tự tính lại từ cost`
+                                : "Nhập cost (giá partner) ở cột bên cạnh để tính margin"
+                            }
+                            className={`w-14 text-right tabular-nums text-xs font-medium bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 disabled:cursor-not-allowed ${color}`}
+                          />
+                          <span className={`text-xs ${color}`}>%</span>
+                        </div>
                       );
                     })()}
                   </td>
