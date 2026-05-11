@@ -622,6 +622,7 @@ import ExcelJS from "exceljs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { prisma } from "../lib/prisma.js";
 
 const __filenameXlsx = fileURLToPath(import.meta.url);
 const __dirnameXlsx = path.dirname(__filenameXlsx);
@@ -692,8 +693,8 @@ function vndInWords(n: number): string {
   return phrase.charAt(0).toUpperCase() + phrase.slice(1) + " đồng./.";
 }
 
-// Style helpers for the totals block — same look as the original template
-// (bold + blue text, right-aligned, thin border, accounting number format).
+// Style helpers for the totals block. Layout is 8 columns A:H, with the
+// label merged across A:E and the value sitting in one of F/G/H.
 function styleTotalsLabel(cell: ExcelJS.Cell): void {
   cell.font = { name: "Arial", size: 10, bold: true, color: { argb: BLUE_TOTAL } };
   cell.alignment = { horizontal: "right", vertical: "top", wrapText: true };
@@ -706,9 +707,9 @@ function styleTotalsLabel(cell: ExcelJS.Cell): void {
 }
 
 function styleTotalsValueRow(ws: ExcelJS.Worksheet, row: number): void {
-  // The label is merged A:D; we still need to border B/C/D so the
-  // outline stays clean, plus style the actual value columns E/F/G.
-  for (const col of ["B", "C", "D"] as const) {
+  // Label is merged A:E. Border the merged-over cells (B,C,D,E) so the outline
+  // stays continuous, then style the three value columns (F, G, H).
+  for (const col of ["B", "C", "D", "E"] as const) {
     ws.getCell(`${col}${row}`).border = {
       top: { style: "thin" },
       bottom: { style: "thin" },
@@ -716,7 +717,7 @@ function styleTotalsValueRow(ws: ExcelJS.Worksheet, row: number): void {
       right: { style: "thin" },
     };
   }
-  for (const col of ["E", "F", "G"] as const) {
+  for (const col of ["F", "G", "H"] as const) {
     const cell = ws.getCell(`${col}${row}`);
     cell.font = { name: "Arial", size: 10, bold: true, color: { argb: BLUE_TOTAL } };
     cell.alignment = { horizontal: "right", vertical: "top" };
@@ -738,13 +739,40 @@ export async function renderQuotationXLSX(
   const taxPct = quotation.tax ?? 0;
   const overallDiscount = quotation.discount ?? 0;
 
+  // Resolve part numbers (SKU) for items that came from the product catalog.
+  // Sample template puts the SKU on its own line under the product display
+  // name ("FG-80F-BDL-950-60" below "FortiGate 80F device"), so we want the
+  // real SKU when available, falling back to vendor or empty string.
+  const productIds = items
+    .map((it) => it.productId)
+    .filter((x): x is string => !!x);
+  const products =
+    productIds.length > 0
+      ? await prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, sku: true },
+        })
+      : [];
+  const skuById = new Map(products.map((p) => [p.id, p.sku ?? ""]));
+  const partNumberOf = (it: QuotationItem): string =>
+    (it.productId && skuById.get(it.productId)) || it.vendor || "";
+
+  // Hardware vs software boilerplate depends on whether VAT applies.
+  // Sample 1 (Fortinet license renewal) had tax=0, sample 2 (hardware
+  // bundle) had tax=8. Both wordings come from the team's real templates.
+  const isSoftware = taxPct === 0;
+  const productNoun = isSoftware ? "software" : "hardware";
+  const vatTerm = isSoftware
+    ? "1. At present, software is not subject to VAT."
+    : `1. At present, the VAT on hardware is ${taxPct}%.`;
+
   const wb = new ExcelJS.Workbook();
   wb.creator = "HSI Sales AI";
   wb.created = new Date();
   const ws = wb.addWorksheet("HPT");
 
-  // Column widths — copied from the sample.
-  const widths = [6.6, 59.7, 5.4, 18, 18.3, 13.7, 16.4];
+  // Column widths — copied from the new template (8 columns A:H).
+  const widths = [6.5, 19.0, 32.16, 5.5, 18.0, 18.33, 13.66, 16.5];
   ws.columns = widths.map((w) => ({ width: w }));
 
   const arial = (size: number, opts: Partial<ExcelJS.Font> = {}) => ({
@@ -752,26 +780,25 @@ export async function renderQuotationXLSX(
     size,
     ...opts,
   });
-  const thinAll = {
-    top: { style: "thin" as const },
-    bottom: { style: "thin" as const },
-    left: { style: "thin" as const },
-    right: { style: "thin" as const },
+  const thinAll: Partial<ExcelJS.Borders> = {
+    top: { style: "thin" },
+    bottom: { style: "thin" },
+    left: { style: "thin" },
+    right: { style: "thin" },
   };
-  const headerBorder = (sidePos: "first" | "middle" | "last"): Partial<ExcelJS.Borders> => ({
+  const headerBorder = (
+    sidePos: "first" | "middle" | "last",
+  ): Partial<ExcelJS.Borders> => ({
     top: { style: "medium" },
     bottom: { style: "thin" },
     left: { style: sidePos === "first" ? "medium" : "thin" },
     right: { style: sidePos === "last" ? "medium" : "thin" },
   });
 
-  // Row 1: HPT logo (left, in A1) + company info block (right, B1:G1).
-  // The logo anchor matches the original template — anchored ~5% in from
-  // the top-left of A1, sized to 110×56 px (same as the source drawing).
+  // -----------------------------------------------------------------------
+  // Row 1: HPT logo (in A1) + company info merged C1:H1 (right-aligned).
+  // -----------------------------------------------------------------------
   if (HPT_LOGO_BUFFER.length > 0) {
-    // Cast: exceljs's typing for buffer expects a stricter Buffer than the
-    // generic Buffer<ArrayBufferLike> returned by fs.readFileSync under
-    // newer @types/node. Functionally identical at runtime.
     const logoId = wb.addImage({
       buffer: HPT_LOGO_BUFFER as unknown as ExcelJS.Buffer,
       extension: "jpeg",
@@ -782,54 +809,73 @@ export async function renderQuotationXLSX(
       editAs: "oneCell",
     });
   }
-  ws.mergeCells("B1:G1");
-  const b1 = ws.getCell("B1");
-  b1.value =
+  ws.mergeCells("C1:H1");
+  const c1 = ws.getCell("C1");
+  c1.value =
     "HPT VIETNAM CORPORATION\n" +
     "HPT SYSTEM INTEGRATION\n" +
     "Office: Lot E2a-3, D1 St., Saigon High Tech Park, Tang Nhon Phu Ward, HCMC, Vietnam\n" +
     "Tel: + (84 28) 54 123 400 • Fax: + (84 28) 54 108 801 • Website: www.hpt.vn";
-  b1.font = arial(9, { bold: true });
-  b1.alignment = { horizontal: "right", vertical: "top", wrapText: true };
+  c1.font = arial(9, { bold: true });
+  c1.alignment = { horizontal: "right", vertical: "top", wrapText: true };
   ws.getRow(1).height = 48;
 
-  // Row 2: "QUOTATION" title, navy.
-  ws.mergeCells("A2:G2");
+  // -----------------------------------------------------------------------
+  // Row 2: "QUOTATION" title (font 20 bold navy, centered).
+  // -----------------------------------------------------------------------
+  ws.mergeCells("A2:H2");
   const a2 = ws.getCell("A2");
   a2.value = "QUOTATION";
   a2.font = arial(20, { bold: true, color: { argb: NAVY } });
   a2.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(2).height = 38;
+  ws.getRow(2).height = 37.5;
 
-  // Row 3: To / Date
-  ws.getCell("B3").value = `To: ${account?.companyName ?? "—"}`;
+  // -----------------------------------------------------------------------
+  // Row 3: To: <customer> (bold) on the left, Date in H3 (italic right).
+  // -----------------------------------------------------------------------
+  ws.getCell("B3").value = `    To: ${account?.companyName ?? "—"}`;
   ws.getCell("B3").font = arial(10, { bold: true });
-  ws.getCell("F3").value = "Date:";
-  ws.getCell("F3").font = arial(10, { bold: true });
-  ws.getCell("F3").alignment = { horizontal: "right" };
-  ws.getCell("G3").value = vndDate(quotation.createdAt);
-  ws.getCell("G3").font = arial(10);
+  ws.getCell("B3").alignment = { horizontal: "left", vertical: "top" };
+  ws.getCell("H3").value = `Date: ${vndDate(quotation.createdAt)}`;
+  ws.getCell("H3").font = arial(10, { italic: true });
+  ws.getCell("H3").alignment = { horizontal: "right", vertical: "middle" };
+  ws.getRow(3).height = 15;
 
-  // Row 4: RFP / Valid until
-  ws.getCell("B4").value = `RFP: ${quotation.title}`;
+  // -----------------------------------------------------------------------
+  // Row 4: RFP / Valid until.
+  // -----------------------------------------------------------------------
+  ws.getCell("B4").value = `    RFP: ${quotation.title}`;
   ws.getCell("B4").font = arial(10, { bold: true });
-  ws.getCell("F4").value = "Valid until: ";
-  ws.getCell("F4").font = arial(10, { bold: true });
-  ws.getCell("F4").alignment = { horizontal: "right" };
-  ws.getCell("G4").value = quotation.validUntil ? vndDate(quotation.validUntil) : "—";
-  ws.getCell("G4").font = arial(10);
+  ws.getCell("B4").alignment = { horizontal: "left", vertical: "top" };
+  ws.getCell("H4").value = `Valid until: ${
+    quotation.validUntil ? vndDate(quotation.validUntil) : "—"
+  }`;
+  ws.getCell("H4").font = arial(10, { italic: true });
+  ws.getCell("H4").alignment = { horizontal: "right", vertical: "middle" };
+  ws.getRow(4).height = 15;
 
-  // Row 5: intro
-  ws.mergeCells("A5:G5");
+  // -----------------------------------------------------------------------
+  // Row 5: intro line, merged across the full width.
+  // -----------------------------------------------------------------------
+  ws.mergeCells("A5:H5");
   const a5 = ws.getCell("A5");
-  a5.value = "We would like to offer the required products with our prices and specifications as follows:";
+  a5.value =
+    "We would like to offer the required products with our prices and specifications as follows:";
   a5.font = arial(10);
+  ws.getRow(5).height = 13.5;
 
-  // Row 7: table header (green).
-  const headerRow = 7;
-  ws.getRow(headerRow).height = 26.45;
+  // Row 6 (gap) + row 7 (gap) — empty, but height matters for spacing.
+  ws.getRow(6).height = 6.75;
+  ws.getRow(7).height = 13;
+
+  // -----------------------------------------------------------------------
+  // Row 8: Table header (green #92D050).
+  // -----------------------------------------------------------------------
+  const headerRow = 8;
+  ws.getRow(headerRow).height = 27.75;
   const headers = [
     "No",
+    "Part Number",
     "Product Description",
     "Qty",
     "Unit Price Before\nVAT (VNĐ)",
@@ -842,201 +888,288 @@ export async function renderQuotationXLSX(
     cell.value = h;
     cell.font = arial(10, { bold: true });
     cell.alignment = { horizontal: "center", vertical: "top", wrapText: true };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN_FILL } };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: GREEN_FILL },
+    };
     cell.border = headerBorder(
       i === 0 ? "first" : i === headers.length - 1 ? "last" : "middle",
     );
   });
 
-  // Item rows.
+  // -----------------------------------------------------------------------
+  // Item rows — 2 rows per item to match the template:
+  //   Row N   = "group header": A=index (bold), B=display name (bold)
+  //   Row N+1 = "detail":       A=blank, B=part number, C=description,
+  //                             D=qty, E=unit price, F/G/H = formulas
   //
-  // All numerical cells in the table use live Excel formulas — matches the
-  // source template (E=D*C, G=E+F, totals via SUM) so the spreadsheet stays
-  // editable. VAT is the only "hand-entered" column: we precompute it from
-  // the quotation's tax% but the formula in G picks it up automatically if
-  // someone changes F afterwards.
+  // Excel formulas:
+  //   F = E*D   (line total before VAT)
+  //   G = F * tax%   (per-line VAT — uses the quotation's tax rate)
+  //   H = F + G (line total after VAT)
+  // -----------------------------------------------------------------------
+  const MONEY_FMT_X = '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)';
   let row = headerRow + 1;
-  const firstItemRow = row;
-  items.forEach((it, idx) => {
-    const descLines: string[] = [it.name];
-    if (it.vendor) descLines.push(it.vendor);
-    if (it.description) descLines.push(it.description);
-    const desc = descLines.join("\n");
+  const detailRows: number[] = []; // for SUM ranges
 
-    // Effective unit price after applying the per-line discount, so qty *
-    // unit_price gives the correct line total via the Excel formula.
+  items.forEach((it, idx) => {
+    // -- Group header row --
+    const ghRow = row;
+    ws.getRow(ghRow).height = 12.75;
+
+    const ghA = ws.getCell(ghRow, 1);
+    ghA.value = idx + 1;
+    ghA.font = arial(10, { bold: true });
+    ghA.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+    ghA.border = thinAll;
+
+    const ghB = ws.getCell(ghRow, 2);
+    ghB.value = it.name; // display name, e.g. "FortiGate 80F device"
+    ghB.font = arial(10, { bold: true, color: { argb: "FF000000" } });
+    ghB.alignment = { horizontal: "left", vertical: "top" };
+    ghB.border = thinAll;
+
+    // Border the remaining cells so the table outline stays continuous.
+    for (let col = 3; col <= 8; col++) {
+      ws.getCell(ghRow, col).border = thinAll;
+    }
+    row++;
+
+    // -- Detail row --
+    const dRow = row;
+    detailRows.push(dRow);
+
+    // Effective unit price after applying the per-line discount, so E*D
+    // gives the right total without an extra discount formula.
     const effectiveUnitPrice = Math.round(
       it.unitPrice * (1 - (it.discount ?? 0) / 100),
     );
     const lineBeforeVAT = effectiveUnitPrice * it.qty;
     const lineVAT = Math.round(lineBeforeVAT * (taxPct / 100));
 
-    // Column A: No.
-    const a = ws.getCell(row, 1);
-    a.value = idx + 1;
-    a.font = arial(10);
-    a.alignment = { horizontal: "center", vertical: "top" };
-    a.border = thinAll;
+    const dA = ws.getCell(dRow, 1);
+    dA.value = null;
+    dA.font = arial(10);
+    dA.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+    dA.border = thinAll;
 
-    // Column B: Product description.
-    const b = ws.getCell(row, 2);
-    b.value = desc;
-    b.font = arial(10);
-    b.alignment = { horizontal: "left", vertical: "top", wrapText: true };
-    b.border = thinAll;
+    const dB = ws.getCell(dRow, 2);
+    dB.value = partNumberOf(it);
+    dB.font = arial(10, { color: { argb: "FF000000" } });
+    dB.alignment = { horizontal: "left", vertical: "top" };
+    dB.border = thinAll;
 
-    // Column C: Qty.
-    const c = ws.getCell(row, 3);
-    c.value = it.qty;
-    c.font = arial(10);
-    c.alignment = { horizontal: "center", vertical: "top" };
-    c.border = thinAll;
+    const dC = ws.getCell(dRow, 3);
+    dC.value = it.description ?? "";
+    dC.font = arial(10, { color: { argb: "FF000000" } });
+    dC.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
+    dC.border = thinAll;
 
-    // Column D: Unit price (after line discount).
-    const d = ws.getCell(row, 4);
-    d.value = effectiveUnitPrice;
-    d.font = arial(10);
-    d.alignment = { horizontal: "right", vertical: "top" };
-    d.numFmt = MONEY_FMT;
-    d.border = thinAll;
+    const dD = ws.getCell(dRow, 4);
+    dD.value = it.qty;
+    dD.font = arial(10);
+    dD.alignment = { horizontal: "center", vertical: "top" };
+    dD.border = thinAll;
 
-    // Column E: Total Before VAT = D*C  (Excel formula)
-    const e = ws.getCell(row, 5);
-    e.value = { formula: `D${row}*C${row}`, result: lineBeforeVAT };
-    e.font = arial(10);
-    e.alignment = { horizontal: "right", vertical: "top" };
-    e.numFmt = MONEY_FMT;
-    e.border = thinAll;
+    const dE = ws.getCell(dRow, 5);
+    dE.value = effectiveUnitPrice;
+    dE.font = arial(10);
+    dE.alignment = { horizontal: "right", vertical: "top" };
+    dE.numFmt = MONEY_FMT_X;
+    dE.border = thinAll;
 
-    // Column F: VAT (hand-entered, precomputed from tax%).
-    const f = ws.getCell(row, 6);
-    f.value = lineVAT;
-    f.font = arial(10);
-    f.alignment = { horizontal: "right", vertical: "top" };
-    f.numFmt = MONEY_FMT;
-    f.border = thinAll;
+    // F = E * D (formula)
+    const dF = ws.getCell(dRow, 6);
+    dF.value = { formula: `E${dRow}*D${dRow}`, result: lineBeforeVAT };
+    dF.font = arial(10);
+    dF.alignment = { horizontal: "right", vertical: "top" };
+    dF.numFmt = MONEY_FMT_X;
+    dF.border = thinAll;
 
-    // Column G: Total After VAT = E+F  (Excel formula)
-    const g = ws.getCell(row, 7);
-    g.value = { formula: `E${row}+F${row}`, result: lineBeforeVAT + lineVAT };
-    g.font = arial(10);
-    g.alignment = { horizontal: "right", vertical: "top" };
-    g.numFmt = MONEY_FMT;
-    g.border = thinAll;
+    // G = F * tax%  (formula matches the original template's =F10*8%)
+    const dG = ws.getCell(dRow, 7);
+    dG.value = taxPct > 0
+      ? { formula: `F${dRow}*${taxPct}%`, result: lineVAT }
+      : 0;
+    dG.font = arial(10);
+    dG.alignment = { horizontal: "right", vertical: "top" };
+    dG.numFmt = MONEY_FMT_X;
+    dG.border = thinAll;
 
-    // Tall enough for multi-line description.
-    const lineCount = desc.split("\n").length;
-    ws.getRow(row).height = Math.max(20, 15 * lineCount);
+    // H = F + G  (formula)
+    const dH = ws.getCell(dRow, 8);
+    dH.value = {
+      formula: `F${dRow}+G${dRow}`,
+      result: lineBeforeVAT + lineVAT,
+    };
+    dH.font = arial(10);
+    dH.alignment = { horizontal: "right", vertical: "top" };
+    dH.numFmt = MONEY_FMT_X;
+    dH.border = thinAll;
+
+    // Make the detail row tall enough for the description to wrap. The
+    // sample uses 90 for a longish description; we scale by character count
+    // so short descriptions don't waste vertical space.
+    const desc = it.description ?? "";
+    const wrapWidthChars = 60; // ≈ chars/line at column C width 32.16
+    const wrappedLines = Math.max(
+      desc.split("\n").length,
+      Math.ceil(desc.length / wrapWidthChars),
+    );
+    ws.getRow(dRow).height = Math.max(20, 15 * wrappedLines);
     row++;
   });
   if (items.length === 0) {
-    // Empty placeholder row so the table still renders sensibly.
-    for (let i = 1; i <= 7; i++) ws.getCell(row, i).border = thinAll;
+    for (let i = 1; i <= 8; i++) ws.getCell(row, i).border = thinAll;
     row++;
   }
-  const lastItemRow = row - 1;
 
-  // Totals block — SUM formulas across the item range.
-  // Grand total in G is derived from E + F totals so the math stays
-  // self-consistent if anyone edits an item cell later.
-  const eRange = `E${firstItemRow}:E${lastItemRow}`;
-  const fRange = `F${firstItemRow}:F${lastItemRow}`;
-  const sumE = Math.max(0, items.reduce((s, it) => {
+  // -----------------------------------------------------------------------
+  // Totals block — 3 rows. Label merged A:E, value in F/G/H respectively.
+  // SUM formulas reference each item's DETAIL row (not group-header row).
+  // -----------------------------------------------------------------------
+  const sumE_perItem = items.reduce((s, it) => {
     const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
     return s + eup * it.qty;
-  }, 0));
-  // Overall discount: if non-zero, apply as a separate line below items so
-  // formulas above stay clean. For now schema-wise this is usually 0; we
-  // just multiply into the SUM via the worksheet formula if needed.
-  const sumE_afterDiscount = Math.round(sumE * (1 - overallDiscount / 100));
-  const sumF = Math.round(sumE_afterDiscount * (taxPct / 100));
-  const grandTotal = sumE_afterDiscount + sumF;
+  }, 0);
+  const sumF_afterDiscount = Math.round(sumE_perItem * (1 - overallDiscount / 100));
+  const sumG = Math.round(sumF_afterDiscount * (taxPct / 100));
+  const grandTotal = sumF_afterDiscount + sumG;
+
+  // Build a comma-separated SUM argument so we hit only detail rows (skip
+  // group-header rows). For 5 items this becomes "F9,F11,F13,F15,F17".
+  const fRefs = detailRows.map((r) => `F${r}`).join(",");
+  const gRefs = detailRows.map((r) => `G${r}`).join(",");
 
   const totalsStart = row;
   // Row N: Total Before VAT
-  ws.mergeCells(`A${row}:D${row}`);
+  ws.mergeCells(`A${row}:E${row}`);
   ws.getCell(`A${row}`).value = "Total Before VAT (VNĐ):";
   styleTotalsLabel(ws.getCell(`A${row}`));
   styleTotalsValueRow(ws, row);
-  ws.getCell(`E${row}`).value = overallDiscount > 0
-    ? { formula: `SUM(${eRange})*${(1 - overallDiscount / 100).toFixed(4)}`, result: sumE_afterDiscount }
-    : { formula: `SUM(${eRange})`, result: sumE_afterDiscount };
+  ws.getCell(`F${row}`).value =
+    detailRows.length === 0
+      ? 0
+      : overallDiscount > 0
+        ? {
+            formula: `SUM(${fRefs})*${(1 - overallDiscount / 100).toFixed(4)}`,
+            result: sumF_afterDiscount,
+          }
+        : { formula: `SUM(${fRefs})`, result: sumF_afterDiscount };
+  ws.getRow(row).height = 12.75;
   row++;
 
   // Row N+1: VAT
-  ws.mergeCells(`A${row}:D${row}`);
+  ws.mergeCells(`A${row}:E${row}`);
   ws.getCell(`A${row}`).value = "VAT (VNĐ):";
   styleTotalsLabel(ws.getCell(`A${row}`));
   styleTotalsValueRow(ws, row);
-  ws.getCell(`F${row}`).value = { formula: `SUM(${fRange})`, result: sumF };
+  ws.getCell(`G${row}`).value =
+    detailRows.length === 0
+      ? 0
+      : { formula: `SUM(${gRefs})`, result: sumG };
+  ws.getRow(row).height = 12.75;
   row++;
 
   // Row N+2: Total After VAT
-  ws.mergeCells(`A${row}:D${row}`);
+  ws.mergeCells(`A${row}:E${row}`);
   ws.getCell(`A${row}`).value = "Total After VAT (VNĐ):";
   styleTotalsLabel(ws.getCell(`A${row}`));
   styleTotalsValueRow(ws, row);
-  ws.getCell(`G${row}`).value = {
-    formula: `E${totalsStart}+F${totalsStart + 1}`,
-    result: grandTotal,
-  };
+  ws.getCell(`H${row}`).value =
+    detailRows.length === 0
+      ? 0
+      : {
+          formula: `F${totalsStart}+G${totalsStart + 1}`,
+          result: grandTotal,
+        };
+  ws.getRow(row).height = 12.75;
   row++;
 
-  // Apply medium outer border on the table+totals block.
+  // -----------------------------------------------------------------------
+  // Apply medium outer border on the table+totals block (columns A..H,
+  // rows headerRow..lastTotalsRow).
+  // -----------------------------------------------------------------------
   const tableLastRow = row - 1;
   for (let r = headerRow; r <= tableLastRow; r++) {
     const left = ws.getCell(r, 1);
-    const right = ws.getCell(r, 7);
+    const right = ws.getCell(r, 8);
     left.border = { ...left.border, left: { style: "medium" } };
     right.border = { ...right.border, right: { style: "medium" } };
   }
-  // Bottom edge of the table block uses medium.
-  for (let col = 1; col <= 7; col++) {
+  for (let col = 1; col <= 8; col++) {
     const c = ws.getCell(tableLastRow, col);
     c.border = { ...c.border, bottom: { style: "medium" } };
   }
 
-  // "In Words" line, merged A:G — uses Vietnamese converter applied to the
-  // grand total we just computed.
-  ws.mergeCells(`A${row}:G${row}`);
+  // -----------------------------------------------------------------------
+  // "In Words" line — merged A:H, italic + bold + blue, centered.
+  // -----------------------------------------------------------------------
+  ws.mergeCells(`A${row}:H${row}`);
   const inWords = ws.getCell(`A${row}`);
   inWords.value = `(In Words: ${vndInWords(grandTotal)})`;
-  inWords.font = arial(10, { italic: true });
-  inWords.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+  inWords.font = arial(10, {
+    italic: true,
+    bold: true,
+    color: { argb: BLUE_TOTAL },
+  });
+  inWords.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+  ws.getRow(row).height = 12.75;
   row++;
 
   // Spacer
+  ws.getRow(row).height = 12.75;
   row++;
 
-  // Terms & conditions
+  // -----------------------------------------------------------------------
+  // TERMS & CONDITIONS — dynamic based on tax (hardware vs software).
+  // -----------------------------------------------------------------------
   ws.getCell(`A${row}`).value = "TERMS & CONDITIONS:";
   ws.getCell(`A${row}`).font = arial(10, { bold: true });
   row++;
-  const terms = [
-    "1. At present, software is not subject to VAT.",
-    "    In case, the Government change VAT rate at the time of issue tax invoice, VAT is subject to the new VAT rate.",
-    "2. Payment: T/T or cash.",
-    "    2.1.  Payment term: 100% within 30 days after the completion of software delivery and receipt of payment document.",
-    "    2.2.  Account number of HPT Vietnam as follows:",
-    "    HPT VietNam Corp.",
-    "    Account No.: 3150763149 VND",
-    "    Bank: Joint Stock Commercial Bank for Investment and Development of Vietnam (BIDV) – Phu Nhuan Branch",
-    "3. Delivery time: 02 to 03 weeks",
+
+  // The block is mostly plain text, but the HPT bank info lines (HPT
+  // VietNam Corp., Account No., Bank) are bold in the source template —
+  // explicit per-line bold flag to match.
+  const terms: Array<{ text: string; bold?: boolean }> = [
+    { text: vatTerm },
+    {
+      text: "    In case, the Government change VAT rate at the time of issue tax invoice, VAT is subject to the new VAT rate.",
+    },
+    { text: "2. Payment: T/T or cash." },
+    {
+      text: `    2.1.  Payment term: 100% within 30 days after the completion of ${productNoun} delivery and receipt of payment document.`,
+    },
+    { text: "    2.2.  Account number of HPT Vietnam as follows:" },
+    { text: "    HPT VietNam Corp.", bold: true },
+    { text: "    Account No.: 3150763149 VND", bold: true },
+    {
+      text: "    Bank: Joint Stock Commercial Bank for Investment and Development of Vietnam (BIDV) – Phu Nhuan Branch",
+      bold: true,
+    },
+    {
+      text: isSoftware
+        ? "3. Delivery time: 02 to 03 weeks"
+        : "3. Delivery time: 06 to 12 weeks",
+    },
   ];
   terms.forEach((t) => {
-    ws.getCell(`B${row}`).value = t;
-    ws.getCell(`B${row}`).font = arial(10);
-    ws.getCell(`B${row}`).alignment = { vertical: "top", wrapText: true };
+    const cell = ws.getCell(`B${row}`);
+    cell.value = t.text;
+    cell.font = arial(10, { bold: !!t.bold });
+    cell.alignment = { vertical: "top", wrapText: true };
+    ws.getRow(row).height = 12.75;
     row++;
   });
 
-  // Notes from the quotation (optional).
+  // Optional notes from the quotation itself.
   if (quotation.notes) {
     row++;
     ws.getCell(`A${row}`).value = "NOTES:";
     ws.getCell(`A${row}`).font = arial(10, { bold: true });
     row++;
-    ws.mergeCells(`A${row}:G${row}`);
+    ws.mergeCells(`A${row}:H${row}`);
     const notesCell = ws.getCell(`A${row}`);
     notesCell.value = quotation.notes;
     notesCell.font = arial(10);
@@ -1044,7 +1177,9 @@ export async function renderQuotationXLSX(
     row++;
   }
 
-  // Spacer + closing
+  // -----------------------------------------------------------------------
+  // Closing + signature.
+  // -----------------------------------------------------------------------
   row++;
   ws.getCell(`A${row}`).value =
     "Thank you for your attention. Please feel free to contact us for any further information.";
@@ -1052,37 +1187,53 @@ export async function renderQuotationXLSX(
   row++;
   ws.getCell(`A${row}`).value = "Yours Sincerely,";
   ws.getCell(`A${row}`).font = arial(10);
-  row += 3;
+  row += 2;
 
-  // Signature block: HPT side (B) + Customer side (F)
+  // Signature headers: HPT side in B, customer side in G (matches new template).
   ws.getCell(`B${row}`).value = "On behalf of HPT";
   ws.getCell(`B${row}`).font = arial(10, { bold: true });
-  ws.getCell(`B${row}`).alignment = { horizontal: "center" };
-  ws.getCell(`F${row}`).value = "Customer's confirmation";
-  ws.getCell(`F${row}`).font = arial(10, { bold: true });
-  ws.getCell(`F${row}`).alignment = { horizontal: "center" };
+  ws.getCell(`B${row}`).alignment = {
+    horizontal: "center",
+    vertical: "middle",
+    wrapText: true,
+  };
+  ws.getCell(`G${row}`).value = "Customer's confirmation";
+  ws.getCell(`G${row}`).font = arial(10, { bold: true });
+  ws.getCell(`G${row}`).alignment = {
+    horizontal: "center",
+    vertical: "middle",
+    wrapText: true,
+  };
+  ws.getRow(row).height = 13.5;
   row++;
-  ws.getCell(`B${row}`).value = "DEPUTY CEO";
-  ws.getCell(`B${row}`).font = arial(10, { bold: true });
-  ws.getCell(`B${row}`).alignment = { horizontal: "center" };
-  row += 6;
-  ws.getCell(`B${row}`).value = "NGUYEN QUYEN";
-  ws.getCell(`B${row}`).font = arial(10, { bold: true });
-  ws.getCell(`B${row}`).alignment = { horizontal: "center" };
 
-  // Page setup so print preview matches the look-and-feel.
+  ws.getCell(`B${row}`).value = "SALES DIRECTOR";
+  ws.getCell(`B${row}`).font = arial(10, { bold: true });
+  ws.getCell(`B${row}`).alignment = { horizontal: "center", vertical: "middle" };
+  row += 6;
+
+  ws.getCell(`B${row}`).value = "DANG VU THUY LINH";
+  ws.getCell(`B${row}`).font = arial(10, { bold: true });
+  ws.getCell(`B${row}`).alignment = { horizontal: "center", vertical: "top" };
+
+  // -----------------------------------------------------------------------
+  // Page setup so print preview matches the template.
+  // -----------------------------------------------------------------------
   ws.pageSetup = {
     orientation: "portrait",
     paperSize: 9, // A4
     fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 0,
-    margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    margins: {
+      left: 0.5,
+      right: 0.5,
+      top: 0.5,
+      bottom: 0.5,
+      header: 0.3,
+      footer: 0.3,
+    },
   };
-
-  // Quiet unused-warning belt-and-suspenders for first/last item references.
-  void firstItemRow;
-  void lastItemRow;
 
   const arrayBuf = await wb.xlsx.writeBuffer();
   return Buffer.from(arrayBuf as ArrayBuffer);
