@@ -118,13 +118,20 @@ interface LineItem {
   // Markup % on top of unitPrice. 6 means +6%; effective sell price per
   // unit = unitPrice × (1 + margin/100). Optional; defaults to 0.
   margin?: number | null;
+  // Per-row VAT %. Different line items may have different VAT rates
+  // (software often 0/exempt, hardware 8/10). Defaults to 10.
+  vatPct?: number | null;
   // Kept for back-compat — older quotations stored partner cost here. New
   // ones don't write to it.
   partnerCost?: number | null;
   // Legacy "% CK" field — pre-margin model. Folded into unitPrice on save.
   discount: number;
   unit?: string;
+  // Pre-VAT total = qty × unitPrice × (1 + margin/100).
   lineTotal: number;
+  // VAT amount for this line = lineTotal × (vatPct / 100). Computed by
+  // recompute(); read-only on the client.
+  lineVAT?: number;
 }
 
 function lid(): string {
@@ -134,16 +141,20 @@ function lid(): string {
 function recompute(
   items: LineItem[],
   _overallDiscount: number,
-  tax: number,
+  legacyTax: number,
 ): { items: LineItem[]; subtotal: number; total: number } {
-  // Pricing model: unitPrice is the partner/cost price typed by the sales rep,
-  // margin is the markup percentage on top. Effective sell-per-unit =
-  // unitPrice × (1 + margin/100). lineTotal = qty × effective sell.
+  // Pricing model:
+  //   effective sell per unit = unitPrice × (1 + margin/100)
+  //   lineTotal (pre-VAT)     = qty × effective sell
+  //   lineVAT                 = lineTotal × (vatPct / 100)
+  //   subtotal                = Σ lineTotal
+  //   total (post-VAT)        = Σ lineTotal + Σ lineVAT
   //
-  // Legacy migration: pre-existing quotations may have line items with a
-  // non-zero discount (the old "% CK" model). Fold it into unitPrice so the
-  // displayed dollar amount stays the same after the user touches the
-  // quotation, then reset discount to 0.
+  // Migrations:
+  // - Legacy line "% CK" discount folds into unitPrice on save.
+  // - Legacy quotation-level tax migrates to per-row vatPct the first time
+  //   a row is missing vatPct. Newly created items default to vatPct=10.
+  const defaultVat = legacyTax || 10;
   const recalced = items.map((it) => {
     const lineDiscount = it.discount ?? 0;
     const baseUnit =
@@ -152,16 +163,22 @@ function recompute(
         : it.unitPrice;
     const margin = it.margin ?? 0;
     const effectiveUnit = Math.round(baseUnit * (1 + margin / 100));
+    const lineTotal = effectiveUnit * it.qty;
+    const vatPct = it.vatPct ?? defaultVat;
+    const lineVAT = Math.round(lineTotal * (vatPct / 100));
     return {
       ...it,
       unitPrice: baseUnit,
       margin,
+      vatPct,
       discount: 0,
-      lineTotal: effectiveUnit * it.qty,
+      lineTotal,
+      lineVAT,
     };
   });
   const subtotal = recalced.reduce((s, it) => s + it.lineTotal, 0);
-  const total = Math.round(subtotal * (1 + (tax || 0) / 100));
+  const totalVAT = recalced.reduce((s, it) => s + (it.lineVAT ?? 0), 0);
+  const total = subtotal + totalVAT;
   return { items: recalced, subtotal: Math.round(subtotal), total };
 }
 
@@ -251,6 +268,8 @@ const lineItemSchema = z.object({
   // marks up software 200%+. Lower bound > -100 so the resulting sell price
   // never goes negative.
   margin: z.number().gt(-100).max(1000).optional().nullable(),
+  // Per-row VAT %. 0–100.
+  vatPct: z.number().min(0).max(100).optional().nullable(),
   // Kept optional for back-compat (older payloads).
   partnerCost: z.number().nonnegative().optional().nullable(),
   discount: z.number().min(0).max(100).optional(),
@@ -298,6 +317,7 @@ quotationsRouter.put("/:id", async (req, res, next) => {
         qty: it.qty,
         unitPrice: it.unitPrice,
         margin: it.margin ?? 0,
+        vatPct: it.vatPct,
         partnerCost: it.partnerCost ?? null,
         discount: it.discount ?? 0,
         unit: it.unit,

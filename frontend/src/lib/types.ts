@@ -330,11 +330,16 @@ export interface QuotationLineItem {
   unitPrice: number;
   /** Markup % on top of unitPrice. Effective sell = unitPrice × (1 + margin/100). */
   margin?: number | null;
+  /** Per-row VAT %. Computed lineVAT = lineTotal × vatPct/100. */
+  vatPct?: number | null;
+  /** Pre-VAT line total. */
+  lineTotal: number;
+  /** Computed VAT amount for this row (read-only from server). */
+  lineVAT?: number;
   /** Legacy fields, kept for back-compat with old quotations. */
   partnerCost?: number | null;
   discount: number;
   unit?: string;
-  lineTotal: number;
 }
 
 export interface RFPRequirement {

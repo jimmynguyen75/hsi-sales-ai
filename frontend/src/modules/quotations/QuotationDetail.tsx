@@ -96,6 +96,7 @@ export function QuotationDetail() {
       qty: 1,
       unitPrice: 0,
       margin: 0,
+      vatPct: 10,
       discount: 0,
       unit: "unit",
       lineTotal: 0,
@@ -118,6 +119,7 @@ export function QuotationDetail() {
       qty: 1,
       unitPrice: baseUnit,
       margin: 0,
+      vatPct: 10,
       discount: 0,
       unit: p.unit,
       lineTotal: 0,
@@ -315,18 +317,25 @@ export function QuotationDetail() {
                 <th className="text-right px-3 py-2 font-medium">Đơn giá</th>
                 <th
                   className="text-right px-3 py-2 font-medium"
-                  title="Tỷ suất lãi gộp = (Đơn giá - Giá partner) / Đơn giá"
+                  title="Markup. Đơn giá sau margin = Đơn giá × (1 + margin%)."
                 >
                   Margin %
                 </th>
-                <th className="text-right px-3 py-2 font-medium">Thành tiền</th>
+                <th
+                  className="text-right px-3 py-2 font-medium"
+                  title="Pre-VAT total = SL × Đơn giá × (1 + margin%)"
+                >
+                  Thành tiền
+                </th>
+                <th className="text-right px-3 py-2 font-medium">VAT %</th>
+                <th className="text-right px-3 py-2 font-medium">VAT</th>
                 <th className="print:hidden"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {q.items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">
+                  <td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-400">
                     Chưa có line item. Thêm từ catalog hoặc để AI gợi ý.
                   </td>
                 </tr>
@@ -431,6 +440,45 @@ export function QuotationDetail() {
                   <td className="px-3 py-2 text-right font-medium text-slate-900 whitespace-nowrap">
                     {formatVND(it.lineTotal)}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    {/* Per-row VAT %. Editable. Common values: 0 (software),
+                        8 (preferential), 10 (default hardware). */}
+                    <div className="inline-flex items-center gap-0.5 justify-end">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={
+                          it.vatPct == null || it.vatPct === 0
+                            ? it.vatPct === 0
+                              ? "0"
+                              : ""
+                            : it.vatPct.toString()
+                        }
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^\d.]/g, "");
+                          if (cleaned === "" || cleaned === ".") {
+                            updateItem(it.id, { vatPct: 0 });
+                            return;
+                          }
+                          const v = parseFloat(cleaned);
+                          if (Number.isNaN(v) || v < 0 || v > 100) return;
+                          updateItem(it.id, { vatPct: v });
+                        }}
+                        placeholder="10"
+                        title="VAT % cho dòng này"
+                        className="w-12 text-right tabular-nums text-sm bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
+                      />
+                      <span className="text-sm text-slate-500">%</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right text-slate-700 tabular-nums whitespace-nowrap">
+                    {/* VAT amount = lineTotal × vatPct/100. Read-only;
+                        backend computes via recompute() and returns lineVAT. */}
+                    {formatVND(
+                      it.lineVAT ??
+                        Math.round((it.lineTotal * (it.vatPct ?? 0)) / 100),
+                    )}
+                  </td>
                   <td className="px-3 py-2 print:hidden">
                     <button
                       onClick={() => removeItem(it.id)}
@@ -461,55 +509,19 @@ export function QuotationDetail() {
 
         <Card className="print:border-0 print:shadow-none">
           <CardBody className="space-y-2 text-sm">
-            {/* Subtotal = Σ(qty × unitPrice). No overall discount — sales
-                reps work on margin, the per-line unit price IS the quoted
-                price. See routes/quotations.ts recompute(). */}
+            {/* Subtotal = Σ lineTotal (pre-VAT). VAT is per-row now, so the
+                aggregate VAT here is just the sum of each row's VAT amount.
+                Tổng cộng = subtotal + total VAT. */}
             <div className="flex justify-between">
-              <span className="text-slate-600">Subtotal</span>
+              <span className="text-slate-600">Subtotal (chưa VAT)</span>
               <span className="font-medium tabular-nums">{formatVND(q.subtotal)}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-600">VAT (%)</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={q.tax}
-                onChange={(e) => saveMut.mutate({ tax: Number(e.target.value) || 0 })}
-                className="w-16 text-right border border-slate-200 rounded px-2 py-0.5 text-sm print:border-0"
-              />
+            <div className="flex justify-between">
+              <span className="text-slate-600">VAT</span>
+              <span className="font-medium tabular-nums">
+                {formatVND(Math.max(0, q.total - q.subtotal))}
+              </span>
             </div>
-            {/* Weighted average margin across all line items. Cost basis is
-                the typed unitPrice; the markup is each line's margin field.
-                Weighted by qty × unitPrice so big-ticket items dominate. */}
-            {(() => {
-              const totalCost = q.items.reduce(
-                (s, it) => s + it.qty * it.unitPrice,
-                0,
-              );
-              if (totalCost === 0) return null;
-              const totalMarkup = q.items.reduce(
-                (s, it) => s + it.qty * it.unitPrice * ((it.margin ?? 0) / 100),
-                0,
-              );
-              const margin = (totalMarkup / totalCost) * 100;
-              const tone =
-                margin >= 20
-                  ? "text-emerald-700"
-                  : margin >= 10
-                    ? "text-amber-700"
-                    : margin >= 0
-                      ? "text-orange-700"
-                      : "text-rose-700";
-              return (
-                <div className="flex justify-between items-center pt-1 text-xs">
-                  <span className="text-slate-500">Margin trung bình</span>
-                  <span className={`font-medium tabular-nums ${tone}`}>
-                    {margin.toFixed(1)}%
-                  </span>
-                </div>
-              );
-            })()}
             <div className="flex justify-between pt-2 border-t border-slate-200 text-base">
               <span className="font-semibold">Tổng cộng</span>
               <span className="font-bold text-brand-700 tabular-nums">{formatVND(q.total)}</span>

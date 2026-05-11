@@ -205,9 +205,12 @@ interface QuotationItem {
   unitPrice: number;
   /** Markup % on top of unitPrice — column E in the XLSX uses this. */
   margin?: number | null;
+  /** Per-row VAT %. Column F uses this directly per line. */
+  vatPct?: number | null;
   discount: number;
   unit?: string;
   lineTotal: number;
+  lineVAT?: number;
 }
 
 export async function renderQuotationPDF(
@@ -951,13 +954,17 @@ export async function renderQuotationXLSX(
     // exported quotation shows the customer-facing sell price in column E,
     // not the internal cost. Legacy discount field still folded in for old
     // quotations not yet migrated.
+    //
+    // VAT is per-row (vatPct). Falls back to the legacy quotation-level
+    // taxPct only for items predating the per-row migration.
     const margin = it.margin ?? 0;
+    const lineVatPct = it.vatPct ?? taxPct;
     const afterDiscount = Math.round(
       it.unitPrice * (1 - (it.discount ?? 0) / 100),
     );
     const effectiveUnitPrice = Math.round(afterDiscount * (1 + margin / 100));
     const lineBeforeVAT = effectiveUnitPrice * it.qty;
-    const lineVAT = Math.round(lineBeforeVAT * (taxPct / 100));
+    const lineVAT = Math.round(lineBeforeVAT * (lineVatPct / 100));
 
     const dA = ws.getCell(dRow, 1);
     dA.value = null;
@@ -998,10 +1005,10 @@ export async function renderQuotationXLSX(
     dF.numFmt = MONEY_FMT_X;
     dF.border = thinAll;
 
-    // G = F * tax%  (formula matches the original template's =F10*8%)
+    // G = F * vatPct%  (per-row VAT, matches template's =F10*8% style)
     const dG = ws.getCell(dRow, 7);
-    dG.value = taxPct > 0
-      ? { formula: `F${dRow}*${taxPct}%`, result: lineVAT }
+    dG.value = lineVatPct > 0
+      ? { formula: `F${dRow}*${lineVatPct}%`, result: lineVAT }
       : 0;
     dG.font = arial(10);
     dG.alignment = { horizontal: "right", vertical: "top" };
@@ -1040,12 +1047,24 @@ export async function renderQuotationXLSX(
   // Totals block — 3 rows. Label merged A:E, value in F/G/H respectively.
   // SUM formulas reference each item's DETAIL row (not group-header row).
   // -----------------------------------------------------------------------
+  // Per-item pre-VAT subtotal — same formula as each row's F column.
   const sumE_perItem = items.reduce((s, it) => {
+    const margin = it.margin ?? 0;
     const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
-    return s + eup * it.qty;
+    const sellUnit = Math.round(eup * (1 + margin / 100));
+    return s + sellUnit * it.qty;
   }, 0);
   const sumF_afterDiscount = Math.round(sumE_perItem * (1 - overallDiscount / 100));
-  const sumG = Math.round(sumF_afterDiscount * (taxPct / 100));
+  // Aggregate VAT now sums each row's individual VAT amount (per-row vatPct),
+  // not a uniform percentage applied to the subtotal.
+  const sumG = items.reduce((s, it) => {
+    const margin = it.margin ?? 0;
+    const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
+    const sellUnit = Math.round(eup * (1 + margin / 100));
+    const lineBeforeVAT = sellUnit * it.qty;
+    const linePct = it.vatPct ?? taxPct;
+    return s + Math.round(lineBeforeVAT * (linePct / 100));
+  }, 0);
   const grandTotal = sumF_afterDiscount + sumG;
 
   // Build a comma-separated SUM argument so we hit only detail rows (skip
