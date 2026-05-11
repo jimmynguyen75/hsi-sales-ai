@@ -403,16 +403,16 @@ export function QuotationDetail() {
                     </div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Margin = (sell - cost) / sell. Editable: typing a new
-                        margin recomputes unitPrice = cost / (1 - margin/100).
-                        Disabled when there's no cost — margin without cost
-                        is undefined. */}
+                    {/* Markup-style "margin": sell = cost × (1 + margin/100).
+                        E.g. cost 1,000,000 + margin 6% → sell 1,060,000.
+                        Inverse: margin = (sell - cost) / cost × 100.
+                        Disabled when there's no cost. */}
                     {(() => {
                       const cost = it.partnerCost ?? null;
                       const hasCost = cost != null && cost > 0;
                       const margin =
                         hasCost && it.unitPrice > 0
-                          ? ((it.unitPrice - (cost as number)) / it.unitPrice) * 100
+                          ? ((it.unitPrice - (cost as number)) / (cost as number)) * 100
                           : null;
                       const color =
                         margin == null
@@ -441,17 +441,17 @@ export function QuotationDetail() {
                               if (cleaned === "" || cleaned === "-" || cleaned === ".") return;
                               const m = parseFloat(cleaned);
                               if (Number.isNaN(m)) return;
-                              if (m >= 100) return; // ≥100% margin is undefined for positive cost
-                              // sell = cost / (1 - margin/100)
+                              if (m <= -100) return; // sell would go negative
+                              // sell = cost × (1 + margin/100)
                               const newUnit = Math.round(
-                                (cost as number) / (1 - m / 100),
+                                (cost as number) * (1 + m / 100),
                               );
                               updateItem(it.id, { unitPrice: newUnit });
                             }}
                             placeholder="—"
                             title={
                               hasCost
-                                ? `Gõ để đổi margin — đơn giá sẽ tự tính lại từ cost`
+                                ? `Gõ margin — đơn giá = cost × (1 + margin%). VD cost 1,000,000 + 6% → 1,060,000.`
                                 : "Nhập cost (giá partner) ở cột bên cạnh để tính margin"
                             }
                             className={`w-14 text-right tabular-nums text-xs font-medium bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 disabled:cursor-not-allowed ${color}`}
@@ -513,8 +513,8 @@ export function QuotationDetail() {
               />
             </div>
             {/* Aggregate margin across all line items that have a partnerCost.
-                Read-only summary so the rep sees overall profitability before
-                sending the quotation out. */}
+                Same markup formula as per-line: (sell - cost) / cost × 100,
+                rolled up across all items where cost is known. */}
             {(() => {
               const withCost = q.items.filter(
                 (it) => it.partnerCost != null && it.partnerCost > 0,
@@ -525,8 +525,8 @@ export function QuotationDetail() {
                 (s, it) => s + it.qty * (it.partnerCost ?? 0),
                 0,
               );
-              if (totalSell === 0) return null;
-              const margin = ((totalSell - totalCost) / totalSell) * 100;
+              if (totalCost === 0) return null;
+              const margin = ((totalSell - totalCost) / totalCost) * 100;
               const tone =
                 margin >= 20
                   ? "text-emerald-700"
