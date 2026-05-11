@@ -326,10 +326,12 @@ export interface QuotationLineItem {
   description?: string;
   vendor?: string;
   qty: number;
+  /** Đơn giá = the partner / cost price typed by the rep. */
   unitPrice: number;
-  /** Partner/vendor cost per unit — used to derive margin %. */
+  /** Markup % on top of unitPrice. Effective sell = unitPrice × (1 + margin/100). */
+  margin?: number | null;
+  /** Legacy fields, kept for back-compat with old quotations. */
   partnerCost?: number | null;
-  /** Legacy field, kept for back-compat with old quotations. */
   discount: number;
   unit?: string;
   lineTotal: number;

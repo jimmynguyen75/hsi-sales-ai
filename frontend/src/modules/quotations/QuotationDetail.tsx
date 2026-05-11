@@ -95,6 +95,7 @@ export function QuotationDetail() {
       name: "",
       qty: 1,
       unitPrice: 0,
+      margin: 0,
       discount: 0,
       unit: "unit",
       lineTotal: 0,
@@ -104,6 +105,10 @@ export function QuotationDetail() {
 
   function addFromProduct(p: Product) {
     if (!q) return;
+    // From the catalog: seed Đơn giá from partnerCost (the actual cost to HPT)
+    // when available, falling back to listPrice. Margin starts at 0 — sales
+    // rep types the markup they want.
+    const baseUnit = p.partnerCost != null && p.partnerCost > 0 ? p.partnerCost : p.listPrice;
     const newItem: QuotationLineItem = {
       id: newLineId(),
       productId: p.id,
@@ -111,10 +116,8 @@ export function QuotationDetail() {
       description: p.description ?? undefined,
       vendor: p.vendor,
       qty: 1,
-      unitPrice: p.listPrice,
-      // Snapshot the partner cost at add-time so margin% renders correctly
-      // and stays stable if the product catalog price moves later.
-      partnerCost: p.partnerCost ?? null,
+      unitPrice: baseUnit,
+      margin: 0,
       discount: 0,
       unit: p.unit,
       lineTotal: 0,
@@ -363,8 +366,8 @@ export function QuotationDetail() {
                     <div className="text-[10px] text-slate-400">{it.unit ?? "unit"}</div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Đơn giá = unit price quoted to customer. Text input
-                        so we can show thousand separators while typing. */}
+                    {/* Đơn giá = the partner / cost price the rep types in.
+                        Markup is the separate Margin column. */}
                     <input
                       type="text"
                       inputMode="numeric"
@@ -378,85 +381,49 @@ export function QuotationDetail() {
                       placeholder="0"
                       className="w-36 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
                     />
-                    {/* Cost input — sub-line. Editable so reps can type
-                        partner cost for blank items, or override the
-                        snapshot from the product catalog. */}
-                    <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400 print:hidden">
-                      <span>cost</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={
-                          it.partnerCost != null && it.partnerCost > 0
-                            ? it.partnerCost.toLocaleString("vi-VN")
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/[^\d]/g, "");
-                          updateItem(it.id, {
-                            partnerCost: cleaned ? parseInt(cleaned, 10) : null,
-                          });
-                        }}
-                        placeholder="—"
-                        className="w-28 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 text-[10px]"
-                      />
-                    </div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Markup-style "margin": sell = cost × (1 + margin/100).
-                        E.g. cost 1,000,000 + margin 6% → sell 1,060,000.
-                        Inverse: margin = (sell - cost) / cost × 100.
-                        Disabled when there's no cost. */}
+                    {/* Margin = simple markup typed by the rep. The Thành tiền
+                        column shows qty × unitPrice × (1 + margin/100). */}
                     {(() => {
-                      const cost = it.partnerCost ?? null;
-                      const hasCost = cost != null && cost > 0;
-                      const margin =
-                        hasCost && it.unitPrice > 0
-                          ? ((it.unitPrice - (cost as number)) / (cost as number)) * 100
-                          : null;
+                      const margin = it.margin ?? 0;
                       const color =
-                        margin == null
-                          ? "text-slate-300"
-                          : margin >= 20
-                            ? "text-emerald-700"
-                            : margin >= 10
-                              ? "text-amber-700"
-                              : margin >= 0
-                                ? "text-orange-700"
-                                : "text-rose-700";
+                        margin >= 20
+                          ? "text-emerald-700"
+                          : margin >= 10
+                            ? "text-amber-700"
+                            : margin >= 0
+                              ? "text-orange-700"
+                              : "text-rose-700";
                       return (
                         <div className="inline-flex items-center gap-0.5 justify-end">
                           <input
                             type="text"
                             inputMode="decimal"
-                            disabled={!hasCost}
-                            value={margin == null ? "" : margin.toFixed(1)}
+                            value={
+                              it.margin == null || it.margin === 0
+                                ? ""
+                                : margin.toString()
+                            }
                             onChange={(e) => {
-                              if (!hasCost) return;
-                              // Allow digits, one minus, one dot.
                               const cleaned = e.target.value.replace(
                                 /[^\d.\-]/g,
                                 "",
                               );
-                              if (cleaned === "" || cleaned === "-" || cleaned === ".") return;
+                              if (cleaned === "" || cleaned === "-" || cleaned === ".") {
+                                updateItem(it.id, { margin: 0 });
+                                return;
+                              }
                               const m = parseFloat(cleaned);
                               if (Number.isNaN(m)) return;
-                              if (m <= -100) return; // sell would go negative
-                              // sell = cost × (1 + margin/100)
-                              const newUnit = Math.round(
-                                (cost as number) * (1 + m / 100),
-                              );
-                              updateItem(it.id, { unitPrice: newUnit });
+                              if (m <= -100) return; // sell would go ≤0
+                              updateItem(it.id, { margin: m });
                             }}
-                            placeholder="—"
-                            title={
-                              hasCost
-                                ? `Gõ margin — đơn giá = cost × (1 + margin%). VD cost 1,000,000 + 6% → 1,060,000.`
-                                : "Nhập cost (giá partner) ở cột bên cạnh để tính margin"
-                            }
-                            className={`w-14 text-right tabular-nums text-xs font-medium bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 disabled:cursor-not-allowed ${color}`}
+                            placeholder="0"
+                            title="Markup %. Thành tiền = qty × đơn giá × (1 + margin%). VD đơn giá 1,000,000 + 6% → 1,060,000."
+                            className={`w-14 text-right tabular-nums text-sm font-medium bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 ${color}`}
                           />
-                          <span className={`text-xs ${color}`}>%</span>
+                          <span className={`text-sm ${color}`}>%</span>
                         </div>
                       );
                     })()}
@@ -512,27 +479,28 @@ export function QuotationDetail() {
                 className="w-16 text-right border border-slate-200 rounded px-2 py-0.5 text-sm print:border-0"
               />
             </div>
-            {/* Aggregate margin across all line items that have a partnerCost.
-                Same markup formula as per-line: (sell - cost) / cost × 100,
-                rolled up across all items where cost is known. */}
+            {/* Weighted average margin across all line items. Cost basis is
+                the typed unitPrice; the markup is each line's margin field.
+                Weighted by qty × unitPrice so big-ticket items dominate. */}
             {(() => {
-              const withCost = q.items.filter(
-                (it) => it.partnerCost != null && it.partnerCost > 0,
-              );
-              if (withCost.length === 0) return null;
-              const totalSell = withCost.reduce((s, it) => s + it.qty * it.unitPrice, 0);
-              const totalCost = withCost.reduce(
-                (s, it) => s + it.qty * (it.partnerCost ?? 0),
+              const totalCost = q.items.reduce(
+                (s, it) => s + it.qty * it.unitPrice,
                 0,
               );
               if (totalCost === 0) return null;
-              const margin = ((totalSell - totalCost) / totalCost) * 100;
+              const totalMarkup = q.items.reduce(
+                (s, it) => s + it.qty * it.unitPrice * ((it.margin ?? 0) / 100),
+                0,
+              );
+              const margin = (totalMarkup / totalCost) * 100;
               const tone =
                 margin >= 20
                   ? "text-emerald-700"
                   : margin >= 10
                     ? "text-amber-700"
-                    : "text-rose-700";
+                    : margin >= 0
+                      ? "text-orange-700"
+                      : "text-rose-700";
               return (
                 <div className="flex justify-between items-center pt-1 text-xs">
                   <span className="text-slate-500">Margin trung bình</span>

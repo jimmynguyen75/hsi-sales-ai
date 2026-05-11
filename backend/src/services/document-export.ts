@@ -203,6 +203,8 @@ interface QuotationItem {
   vendor?: string;
   qty: number;
   unitPrice: number;
+  /** Markup % on top of unitPrice — column E in the XLSX uses this. */
+  margin?: number | null;
   discount: number;
   unit?: string;
   lineTotal: number;
@@ -945,11 +947,15 @@ export async function renderQuotationXLSX(
     const dRow = row;
     detailRows.push(dRow);
 
-    // Effective unit price after applying the per-line discount, so E*D
-    // gives the right total without an extra discount formula.
-    const effectiveUnitPrice = Math.round(
+    // Effective sell price per unit = unitPrice × (1 + margin/100). The
+    // exported quotation shows the customer-facing sell price in column E,
+    // not the internal cost. Legacy discount field still folded in for old
+    // quotations not yet migrated.
+    const margin = it.margin ?? 0;
+    const afterDiscount = Math.round(
       it.unitPrice * (1 - (it.discount ?? 0) / 100),
     );
+    const effectiveUnitPrice = Math.round(afterDiscount * (1 + margin / 100));
     const lineBeforeVAT = effectiveUnitPrice * it.qty;
     const lineVAT = Math.round(lineBeforeVAT * (taxPct / 100));
 

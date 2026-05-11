@@ -111,14 +111,17 @@ interface LineItem {
   description?: string;
   vendor?: string;
   qty: number;
+  // Đơn giá = the partner / cost price typed by the sales rep. Markup is
+  // applied separately via the margin field; lineTotal already reflects the
+  // multiplied result.
   unitPrice: number;
-  // Cost from the partner/vendor for one unit. Snapshot at add-time so margin
-  // calculation stays stable even if the product catalog price changes later.
-  // Optional because some items (services, custom work) won't have a real
-  // partner cost.
+  // Markup % on top of unitPrice. 6 means +6%; effective sell price per
+  // unit = unitPrice × (1 + margin/100). Optional; defaults to 0.
+  margin?: number | null;
+  // Kept for back-compat — older quotations stored partner cost here. New
+  // ones don't write to it.
   partnerCost?: number | null;
-  // Kept for back-compat with quotations created before margin replaced
-  // discount; new quotations leave it at 0.
+  // Legacy "% CK" field — pre-margin model. Folded into unitPrice on save.
   discount: number;
   unit?: string;
   lineTotal: number;
@@ -133,25 +136,28 @@ function recompute(
   _overallDiscount: number,
   tax: number,
 ): { items: LineItem[]; subtotal: number; total: number } {
-  // Quotations now compute purely from qty × unitPrice — no line or overall
-  // discount applied. Sales team works on margin (sell vs partner cost), not
-  // on customer-facing discount, so the price typed IS the price quoted.
+  // Pricing model: unitPrice is the partner/cost price typed by the sales rep,
+  // margin is the markup percentage on top. Effective sell-per-unit =
+  // unitPrice × (1 + margin/100). lineTotal = qty × effective sell.
   //
   // Legacy migration: pre-existing quotations may have line items with a
-  // non-zero discount. Fold it into unitPrice so the displayed dollar amount
-  // stays the same after the user touches the quotation, then reset discount
-  // to 0. This is a one-way migration on save.
+  // non-zero discount (the old "% CK" model). Fold it into unitPrice so the
+  // displayed dollar amount stays the same after the user touches the
+  // quotation, then reset discount to 0.
   const recalced = items.map((it) => {
     const lineDiscount = it.discount ?? 0;
-    const effectiveUnit =
+    const baseUnit =
       lineDiscount > 0
         ? Math.round(it.unitPrice * (1 - lineDiscount / 100))
         : it.unitPrice;
+    const margin = it.margin ?? 0;
+    const effectiveUnit = Math.round(baseUnit * (1 + margin / 100));
     return {
       ...it,
-      unitPrice: effectiveUnit,
+      unitPrice: baseUnit,
+      margin,
       discount: 0,
-      lineTotal: Math.round(it.qty * effectiveUnit),
+      lineTotal: effectiveUnit * it.qty,
     };
   });
   const subtotal = recalced.reduce((s, it) => s + it.lineTotal, 0);
@@ -241,9 +247,12 @@ const lineItemSchema = z.object({
   vendor: z.string().optional(),
   qty: z.number().positive(),
   unitPrice: z.number().nonnegative(),
-  // Partner cost — used to derive margin % on the UI. Optional.
+  // Markup % on top of unitPrice. Allow a generous range — sales sometimes
+  // marks up software 200%+. Lower bound > -100 so the resulting sell price
+  // never goes negative.
+  margin: z.number().gt(-100).max(1000).optional().nullable(),
+  // Kept optional for back-compat (older payloads).
   partnerCost: z.number().nonnegative().optional().nullable(),
-  // Legacy field, retained for old payloads; new quotations don't use it.
   discount: z.number().min(0).max(100).optional(),
   unit: z.string().optional(),
 });
@@ -288,6 +297,7 @@ quotationsRouter.put("/:id", async (req, res, next) => {
         vendor: it.vendor,
         qty: it.qty,
         unitPrice: it.unitPrice,
+        margin: it.margin ?? 0,
         partnerCost: it.partnerCost ?? null,
         discount: it.discount ?? 0,
         unit: it.unit,
