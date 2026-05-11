@@ -707,21 +707,26 @@ function styleTotalsLabel(cell: ExcelJS.Cell): void {
 }
 
 function styleTotalsValueRow(ws: ExcelJS.Worksheet, row: number): void {
-  // Label is merged A:E. Border the merged-over cells (B,C,D,E) so the outline
-  // stays continuous, then style the three value columns (F, G, H).
-  for (const col of ["B", "C", "D", "E"] as const) {
+  // Label is merged A:E. The merged-over cells (B/C/D) only need top + bottom
+  // borders — left/right would create phantom inner lines that read as extra
+  // dividers inside the merged label region. E (last cell of merge) gets a
+  // right border so it cleanly meets F.
+  for (const col of ["B", "C", "D"] as const) {
     ws.getCell(`${col}${row}`).border = {
       top: { style: "thin" },
       bottom: { style: "thin" },
-      left: { style: "thin" },
-      right: { style: "thin" },
     };
   }
+  ws.getCell(`E${row}`).border = {
+    top: { style: "thin" },
+    bottom: { style: "thin" },
+    right: { style: "thin" },
+  };
   for (const col of ["F", "G", "H"] as const) {
     const cell = ws.getCell(`${col}${row}`);
     cell.font = { name: "Arial", size: 10, bold: true, color: { argb: BLUE_TOTAL } };
     cell.alignment = { horizontal: "right", vertical: "top" };
-    cell.numFmt = '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)';
+    cell.numFmt = '_(* #,##0_);_(* "-"_);_(@_)';
     cell.border = {
       top: { style: "thin" },
       bottom: { style: "thin" },
@@ -1088,10 +1093,44 @@ export async function renderQuotationXLSX(
   row++;
 
   // -----------------------------------------------------------------------
-  // Apply medium outer border on the table+totals block (columns A..H,
-  // rows headerRow..lastTotalsRow).
+  // "In Words" line — merged A:H, italic + bold + blue, centered.
+  // Lives INSIDE the table block (same medium outer border), matching the
+  // source template where A14 has L:medium and H14 has R:medium.
   // -----------------------------------------------------------------------
-  const tableLastRow = row - 1;
+  const inWordsRow = row;
+  ws.mergeCells(`A${inWordsRow}:H${inWordsRow}`);
+  const inWords = ws.getCell(`A${inWordsRow}`);
+  inWords.value = `(In Words: ${vndInWords(grandTotal)})`;
+  inWords.font = arial(10, {
+    italic: true,
+    bold: true,
+    color: { argb: BLUE_TOTAL },
+  });
+  inWords.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+  ws.getRow(inWordsRow).height = 12.75;
+  // Top + bottom thin border on A14 (left edge of merge); merged-over cells
+  // only need top + bottom. Right edge of merge (H) gets a thin border.
+  inWords.border = {
+    top: { style: "thin" },
+    bottom: { style: "thin" },
+  };
+  for (let col = 2; col <= 7; col++) {
+    ws.getCell(inWordsRow, col).border = {
+      top: { style: "thin" },
+      bottom: { style: "thin" },
+    };
+  }
+  ws.getCell(inWordsRow, 8).border = {
+    top: { style: "thin" },
+    bottom: { style: "thin" },
+  };
+  row++;
+
+  // -----------------------------------------------------------------------
+  // Apply medium outer border on the entire table block — including the
+  // In Words row. Matches the source template (A8..H14 wrapped in medium).
+  // -----------------------------------------------------------------------
+  const tableLastRow = inWordsRow;
   for (let r = headerRow; r <= tableLastRow; r++) {
     const left = ws.getCell(r, 1);
     const right = ws.getCell(r, 8);
@@ -1102,21 +1141,6 @@ export async function renderQuotationXLSX(
     const c = ws.getCell(tableLastRow, col);
     c.border = { ...c.border, bottom: { style: "medium" } };
   }
-
-  // -----------------------------------------------------------------------
-  // "In Words" line — merged A:H, italic + bold + blue, centered.
-  // -----------------------------------------------------------------------
-  ws.mergeCells(`A${row}:H${row}`);
-  const inWords = ws.getCell(`A${row}`);
-  inWords.value = `(In Words: ${vndInWords(grandTotal)})`;
-  inWords.font = arial(10, {
-    italic: true,
-    bold: true,
-    color: { argb: BLUE_TOTAL },
-  });
-  inWords.alignment = { horizontal: "center", vertical: "top", wrapText: true };
-  ws.getRow(row).height = 12.75;
-  row++;
 
   // Spacer
   ws.getRow(row).height = 12.75;
@@ -1158,7 +1182,10 @@ export async function renderQuotationXLSX(
     const cell = ws.getCell(`B${row}`);
     cell.value = t.text;
     cell.font = arial(10, { bold: !!t.bold });
-    cell.alignment = { vertical: "top", wrapText: true };
+    // No wrap — original template lets long lines overflow naturally to the
+    // right so each clause stays on one row. Wrap-text would compress them
+    // into multi-line cells.
+    cell.alignment = { vertical: "top", wrapText: false };
     ws.getRow(row).height = 12.75;
     row++;
   });
