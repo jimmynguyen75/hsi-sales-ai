@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import {
   formatVND,
+  formatVNDShort,
   formatDate,
   relativeTime,
   stageColor,
@@ -223,21 +224,21 @@ export function Dashboard() {
         <KPI
           icon={<Briefcase className="h-4 w-4" />}
           label="Pipeline đang mở"
-          value={formatVND(kpis.openValue)}
+          value={formatVNDShort(kpis.openValue)}
           hint={`${kpis.openCount} deals`}
           tone="slate"
         />
         <KPI
           icon={<TrendingUp className="h-4 w-4" />}
           label="Forecast (weighted)"
-          value={formatVND(kpis.weighted)}
+          value={formatVNDShort(kpis.weighted)}
           hint="Σ giá trị × xác suất"
           tone="brand"
         />
         <KPI
           icon={<Trophy className="h-4 w-4" />}
           label="Closed-won (tháng này)"
-          value={formatVND(kpis.wonMTD)}
+          value={formatVNDShort(kpis.wonMTD)}
           tone="emerald"
         />
         <KPI

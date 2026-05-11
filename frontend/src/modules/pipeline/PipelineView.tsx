@@ -31,7 +31,7 @@ import { api } from "@/lib/api";
 import type { Deal, User } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
-import { formatVND, formatDate, stageColor } from "@/lib/format";
+import { formatVND, formatVNDShort, formatDate, stageColor } from "@/lib/format";
 import { DealDialog } from "@/modules/crm/DealDialog";
 
 type StageKey =
@@ -158,20 +158,20 @@ export function PipelineView() {
         <StatCard
           icon={<Target className="h-4 w-4" />}
           label="Tổng pipeline"
-          value={formatVND(stats.totalValue)}
+          value={formatVNDShort(stats.totalValue)}
           tone="slate"
         />
         <StatCard
           icon={<TrendingUp className="h-4 w-4" />}
           label="Forecast (weighted)"
-          value={formatVND(stats.weighted)}
+          value={formatVNDShort(stats.weighted)}
           tone="brand"
           hint="Σ (giá trị × xác suất)"
         />
         <StatCard
           icon={<TrendingUp className="h-4 w-4" />}
           label="Closed — Won"
-          value={formatVND(stats.won)}
+          value={formatVNDShort(stats.won)}
           tone="emerald"
         />
       </div>
@@ -288,7 +288,7 @@ function KanbanColumn({
           <span className="text-xs text-slate-500">({deals.length})</span>
         </div>
         {deals.length > 0 && (
-          <div className="text-[11px] text-slate-500 tabular-nums">{formatVND(total)}</div>
+          <div className="text-[11px] text-slate-500 tabular-nums">{formatVNDShort(total)}</div>
         )}
       </div>
       <div className="rounded-lg bg-slate-100/70 p-2 space-y-2 min-h-[220px]">

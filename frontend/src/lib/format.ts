@@ -1,4 +1,19 @@
+/**
+ * Default money formatter — full digits with vi-VN thousand separators
+ * (e.g. 9,184,000,000 ₫). Use this anywhere the exact number matters:
+ * quotation line items, totals, audit log values, etc.
+ */
 export function formatVND(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return `${Math.round(value).toLocaleString("vi-VN")} ₫`;
+}
+
+/**
+ * Compact variant — abbreviates to M / B for narrow KPI cards (Dashboard
+ * stat tiles, Pipeline forecast strip). Opt-in only; do NOT use in
+ * detail screens where precision matters.
+ */
+export function formatVNDShort(value: number | null | undefined): string {
   if (value == null) return "—";
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B ₫`;
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(0)}M ₫`;
