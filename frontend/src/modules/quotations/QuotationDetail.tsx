@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -46,11 +46,31 @@ export function QuotationDetail() {
   // button. null = idle.
   const [downloadingXlsx, setDownloadingXlsx] = useState<"vi" | "en" | null>(null);
 
+  // Local state for free-text fields so typing isn't interrupted by the
+  // invalidate-on-success refetch that saveMut triggers. Each field syncs
+  // back to the server on blur.
+  const [localTitle, setLocalTitle] = useState("");
+  const [localValidUntil, setLocalValidUntil] = useState("");
+  const [localNotes, setLocalNotes] = useState("");
+
   const { data: q, isLoading } = useQuery({
     queryKey: ["quotation", id],
     queryFn: () => api.get<Quotation>(`/quotations/${id}`),
     enabled: !!id,
   });
+
+  // Pull free-text fields into local state whenever the server payload
+  // changes (initial load + after our own saves). Comparing the field
+  // value avoids resetting while the user is still typing.
+  useEffect(() => {
+    if (!q) return;
+    setLocalTitle((cur) => (cur === q.title || cur === "" ? q.title : cur));
+    setLocalValidUntil((cur) => {
+      const next = q.validUntil ? q.validUntil.slice(0, 10) : "";
+      return cur === next || cur === "" ? next : cur;
+    });
+    setLocalNotes((cur) => (cur === (q.notes ?? "") || cur === "" ? q.notes ?? "" : cur));
+  }, [q?.id, q?.title, q?.validUntil, q?.notes]); // re-sync if server values change
 
   const saveMut = useMutation({
     mutationFn: (data: Partial<Quotation>) => api.put<Quotation>(`/quotations/${id}`, data),
@@ -255,18 +275,41 @@ export function QuotationDetail() {
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1">
               <div className="text-xs text-slate-500 mb-1">{q.number}</div>
+              {/* Title is locally controlled — saves only on blur so the
+                  query-invalidation refetch can't yank characters out from
+                  under the keystroke. */}
               <Input
-                value={q.title}
-                onChange={(e) => saveMut.mutate({ title: e.target.value })}
+                value={localTitle}
+                onChange={(e) => setLocalTitle(e.target.value)}
+                onBlur={() => {
+                  if (localTitle !== q.title) saveMut.mutate({ title: localTitle });
+                }}
+                placeholder="Tên báo giá..."
                 className="text-lg font-semibold border-0 px-0 focus:ring-0 focus:border-0"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <Badge className={STATUS_COLOR[q.status] ?? "bg-slate-100 text-slate-700"}>
                   {q.status}
                 </Badge>
-                {q.validUntil && (
-                  <span className="text-slate-500">Hết hạn: {formatDate(q.validUntil)}</span>
-                )}
+                {/* Inline date input — same blur-to-save pattern. Empty
+                    string clears the value (sent as null). */}
+                <label className="inline-flex items-center gap-1 text-slate-500">
+                  Hết hạn:
+                  <input
+                    type="date"
+                    value={localValidUntil}
+                    onChange={(e) => setLocalValidUntil(e.target.value)}
+                    onBlur={() => {
+                      const next = localValidUntil
+                        ? new Date(localValidUntil).toISOString()
+                        : null;
+                      if (next !== (q.validUntil ?? null)) {
+                        saveMut.mutate({ validUntil: next });
+                      }
+                    }}
+                    className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </label>
               </div>
             </div>
             <div className="print:hidden">
@@ -535,8 +578,13 @@ export function QuotationDetail() {
           <CardBody>
             <Label>Ghi chú / Terms</Label>
             <Textarea
-              value={q.notes ?? ""}
-              onChange={(e) => saveMut.mutate({ notes: e.target.value })}
+              value={localNotes}
+              onChange={(e) => setLocalNotes(e.target.value)}
+              onBlur={() => {
+                if (localNotes !== (q.notes ?? "")) {
+                  saveMut.mutate({ notes: localNotes });
+                }
+              }}
               rows={5}
               placeholder="Payment terms, delivery, warranty, assumption..."
             />
