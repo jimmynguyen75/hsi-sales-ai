@@ -111,12 +111,16 @@ interface LineItem {
   description?: string;
   vendor?: string;
   qty: number;
-  // Đơn giá = the partner / cost price typed by the sales rep. Markup is
-  // applied separately via the margin field; lineTotal already reflects the
-  // multiplied result.
+  // Đơn giá = the partner / cost price typed by the sales rep. The selling
+  // price is derived from cost + margin (see below); lineTotal already
+  // reflects the multiplied result.
   unitPrice: number;
-  // Markup % on top of unitPrice. 6 means +6%; effective sell price per
-  // unit = unitPrice × (1 + margin/100). Optional; defaults to 0.
+  // Gross margin %, defined the standard accounting way:
+  //   margin% = (sell - cost) / sell × 100
+  // Effective sell-per-unit is the inverse:
+  //   sell = cost / (1 - margin/100)
+  // Optional; defaults to 0. Capped just under 100 — at 100 the divisor
+  // would be 0 (infinite price).
   margin?: number | null;
   // Per-row VAT %. Different line items may have different VAT rates
   // (software often 0/exempt, hardware 8/10). Defaults to 10.
@@ -143,8 +147,8 @@ function recompute(
   _overallDiscount: number,
   legacyTax: number,
 ): { items: LineItem[]; subtotal: number; total: number } {
-  // Pricing model:
-  //   effective sell per unit = unitPrice × (1 + margin/100)
+  // Pricing model (gross margin):
+  //   effective sell per unit = unitPrice / (1 - margin/100)
   //   lineTotal (pre-VAT)     = qty × effective sell
   //   lineVAT                 = lineTotal × (vatPct / 100)
   //   subtotal                = Σ lineTotal
@@ -162,7 +166,13 @@ function recompute(
         ? Math.round(it.unitPrice * (1 - lineDiscount / 100))
         : it.unitPrice;
     const margin = it.margin ?? 0;
-    const effectiveUnit = Math.round(baseUnit * (1 + margin / 100));
+    // Gross margin → sell = cost / (1 - margin/100). The schema caps margin
+    // strictly below 100, but defend against a divisor close to zero anyway.
+    const divisor = 1 - margin / 100;
+    const effectiveUnit =
+      margin === 0 || divisor <= 0.0001
+        ? baseUnit
+        : Math.round(baseUnit / divisor);
     const lineTotal = effectiveUnit * it.qty;
     const vatPct = it.vatPct ?? defaultVat;
     const lineVAT = Math.round(lineTotal * (vatPct / 100));
@@ -264,10 +274,10 @@ const lineItemSchema = z.object({
   vendor: z.string().optional(),
   qty: z.number().positive(),
   unitPrice: z.number().nonnegative(),
-  // Markup % on top of unitPrice. Allow a generous range — sales sometimes
-  // marks up software 200%+. Lower bound > -100 so the resulting sell price
-  // never goes negative.
-  margin: z.number().gt(-100).max(1000).optional().nullable(),
+  // Gross margin %. Must be strictly < 100 (at 100 the formula divides
+  // by zero, giving infinite price). Lower bound > -1000 allows loss
+  // pricing for promos.
+  margin: z.number().gt(-1000).lt(100).optional().nullable(),
   // Per-row VAT %. 0–100.
   vatPct: z.number().min(0).max(100).optional().nullable(),
   // Kept optional for back-compat (older payloads).

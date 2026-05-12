@@ -425,8 +425,10 @@ export function QuotationDetail() {
                     />
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Margin = simple markup typed by the rep. The Thành tiền
-                        column shows qty × unitPrice × (1 + margin/100). */}
+                    {/* Gross margin %. Sell price derived as
+                        sell = cost / (1 - margin/100). The Thành tiền column
+                        shows qty × that derived sell. Capped at < 100 — at
+                        100 the formula divides by zero. */}
                     {(() => {
                       const margin = it.margin ?? 0;
                       const color =
@@ -458,11 +460,12 @@ export function QuotationDetail() {
                               }
                               const m = parseFloat(cleaned);
                               if (Number.isNaN(m)) return;
-                              if (m <= -100) return; // sell would go ≤0
+                              if (m >= 100) return; // divisor would be ≤0
+                              if (m <= -1000) return; // sanity bound for loss promos
                               updateItem(it.id, { margin: m });
                             }}
                             placeholder="0"
-                            title="Markup %. Thành tiền = qty × đơn giá × (1 + margin%). VD đơn giá 1,000,000 + 6% → 1,060,000."
+                            title="Gross margin %. Sell = đơn giá / (1 − margin%). VD đơn giá 1,000,000, margin 6% → 1,063,830."
                             className={`w-14 text-right tabular-nums text-sm font-medium bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 ${color}`}
                           />
                           <span className={`text-sm ${color}`}>%</span>

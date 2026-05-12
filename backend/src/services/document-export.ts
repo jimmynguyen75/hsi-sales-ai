@@ -1138,8 +1138,9 @@ export async function renderQuotationXLSX(
     const dRow = row;
     detailRows.push(dRow);
 
-    // Effective sell price per unit = unitPrice × (1 + margin/100). The
-    // exported quotation shows the customer-facing sell price in column E,
+    // Effective sell price per unit uses the gross-margin formula:
+    //   sell = cost / (1 - margin/100)
+    // The exported quotation shows the customer-facing sell price in column E,
     // not the internal cost. Legacy discount field still folded in for old
     // quotations not yet migrated.
     //
@@ -1150,7 +1151,11 @@ export async function renderQuotationXLSX(
     const afterDiscount = Math.round(
       it.unitPrice * (1 - (it.discount ?? 0) / 100),
     );
-    const effectiveUnitPrice = Math.round(afterDiscount * (1 + margin / 100));
+    const marginDivisor = 1 - margin / 100;
+    const effectiveUnitPrice =
+      margin === 0 || marginDivisor <= 0.0001
+        ? afterDiscount
+        : Math.round(afterDiscount / marginDivisor);
     const lineBeforeVAT = effectiveUnitPrice * it.qty;
     const lineVAT = Math.round(lineBeforeVAT * (lineVatPct / 100));
 
@@ -1235,21 +1240,24 @@ export async function renderQuotationXLSX(
   // Totals block — 3 rows. Label merged A:E, value in F/G/H respectively.
   // SUM formulas reference each item's DETAIL row (not group-header row).
   // -----------------------------------------------------------------------
+  // Helper: same gross-margin formula used per row above.
+  const sellUnitOf = (it: QuotationItem): number => {
+    const margin = it.margin ?? 0;
+    const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
+    const divisor = 1 - margin / 100;
+    return margin === 0 || divisor <= 0.0001
+      ? eup
+      : Math.round(eup / divisor);
+  };
   // Per-item pre-VAT subtotal — same formula as each row's F column.
-  const sumE_perItem = items.reduce((s, it) => {
-    const margin = it.margin ?? 0;
-    const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
-    const sellUnit = Math.round(eup * (1 + margin / 100));
-    return s + sellUnit * it.qty;
-  }, 0);
+  const sumE_perItem = items.reduce(
+    (s, it) => s + sellUnitOf(it) * it.qty,
+    0,
+  );
   const sumF_afterDiscount = Math.round(sumE_perItem * (1 - overallDiscount / 100));
-  // Aggregate VAT now sums each row's individual VAT amount (per-row vatPct),
-  // not a uniform percentage applied to the subtotal.
+  // Aggregate VAT sums each row's individual VAT amount (per-row vatPct).
   const sumG = items.reduce((s, it) => {
-    const margin = it.margin ?? 0;
-    const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
-    const sellUnit = Math.round(eup * (1 + margin / 100));
-    const lineBeforeVAT = sellUnit * it.qty;
+    const lineBeforeVAT = sellUnitOf(it) * it.qty;
     const linePct = it.vatPct ?? taxPct;
     return s + Math.round(lineBeforeVAT * (linePct / 100));
   }, 0);
