@@ -44,7 +44,8 @@ quotationsRouter.get("/:id/export.pdf", async (req, res, next) => {
   }
 });
 
-// GET /api/quotations/:id/export.xlsx — HPT-template Excel
+// GET /api/quotations/:id/export.xlsx?lang=vi|en — HPT-template Excel.
+// `lang` defaults to "vi" if absent/unrecognized.
 quotationsRouter.get("/:id/export.xlsx", async (req, res, next) => {
   try {
     const userId = (req as AuthedRequest).userId;
@@ -55,21 +56,20 @@ quotationsRouter.get("/:id/export.xlsx", async (req, res, next) => {
       ? await prisma.account.findUnique({ where: { id: quotation.accountId } })
       : null;
 
-    const buf = await renderQuotationXLSX(quotation, account);
+    const lang = req.query.lang === "en" ? "en" : "vi";
+    const buf = await renderQuotationXLSX(quotation, account, lang);
+    const filename = `${quotation.number}-${lang.toUpperCase()}.xlsx`;
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${quotation.number}.xlsx"`,
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", buf.length.toString());
     await logAudit(req, {
       action: "export",
       entity: "quotation",
       entityId: quotation.id,
-      summary: `Xuất XLSX quotation ${quotation.number}`,
+      summary: `Xuất XLSX (${lang.toUpperCase()}) quotation ${quotation.number}`,
     });
     res.end(buf);
   } catch (e) {

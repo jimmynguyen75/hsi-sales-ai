@@ -42,7 +42,9 @@ export function QuotationDetail() {
   const [showPicker, setShowPicker] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingDocx, setDownloadingDocx] = useState(false);
-  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
+  // Tracks which language download is in flight so we can spin the right
+  // button. null = idle.
+  const [downloadingXlsx, setDownloadingXlsx] = useState<"vi" | "en" | null>(null);
 
   const { data: q, isLoading } = useQuery({
     queryKey: ["quotation", id],
@@ -180,27 +182,58 @@ export function QuotationDetail() {
             <FileText className="h-3.5 w-3.5" />
             DOCX
           </Button>
+          {/* Two XLSX buttons — Vietnamese and English locales. Labels, T&C
+              wording, and the number-to-words line all switch based on the
+              lang query param the server reads. */}
           <Button
             variant="outline"
             size="sm"
-            loading={downloadingXlsx}
-            disabled={downloadingXlsx || q.items.length === 0}
-            title="Xuất Excel theo template HPT"
+            loading={downloadingXlsx === "vi"}
+            disabled={!!downloadingXlsx || q.items.length === 0}
+            title="Xuất Excel — tiếng Việt"
             onClick={async () => {
               if (!q) return;
-              setDownloadingXlsx(true);
+              setDownloadingXlsx("vi");
               try {
-                await downloadFile(`/quotations/${q.id}/export.xlsx`, `${q.number}.xlsx`);
-                toast.success("Đã tải XLSX");
+                await downloadFile(
+                  `/quotations/${q.id}/export.xlsx?lang=vi`,
+                  `${q.number}-VI.xlsx`,
+                );
+                toast.success("Đã tải XLSX (Tiếng Việt)");
               } catch (err) {
                 toast.error("Tải XLSX thất bại", err instanceof Error ? err.message : String(err));
               } finally {
-                setDownloadingXlsx(false);
+                setDownloadingXlsx(null);
               }
             }}
           >
             <FileSpreadsheet className="h-3.5 w-3.5" />
-            XLSX
+            XLSX (VI)
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={downloadingXlsx === "en"}
+            disabled={!!downloadingXlsx || q.items.length === 0}
+            title="Export Excel — English"
+            onClick={async () => {
+              if (!q) return;
+              setDownloadingXlsx("en");
+              try {
+                await downloadFile(
+                  `/quotations/${q.id}/export.xlsx?lang=en`,
+                  `${q.number}-EN.xlsx`,
+                );
+                toast.success("Đã tải XLSX (English)");
+              } catch (err) {
+                toast.error("Tải XLSX thất bại", err instanceof Error ? err.message : String(err));
+              } finally {
+                setDownloadingXlsx(null);
+              }
+            }}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            XLSX (EN)
           </Button>
           <Button variant="ghost" size="sm" onClick={() => window.print()}>
             <Printer className="h-3.5 w-3.5" />

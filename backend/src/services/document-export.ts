@@ -698,6 +698,206 @@ function vndInWords(n: number): string {
   return phrase.charAt(0).toUpperCase() + phrase.slice(1) + " đồng./.";
 }
 
+/** Convert a positive integer (VND) into English words.
+ *  Returns capitalized phrase ending with "VND only./." */
+function vndInWordsEN(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "Zero VND only./.";
+  const ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const teens = [
+    "ten", "eleven", "twelve", "thirteen", "fourteen",
+    "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+  ];
+  const tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+  const scales = ["", "thousand", "million", "billion", "trillion"];
+
+  const readUnder1000 = (g: number): string => {
+    const hundreds = Math.floor(g / 100);
+    const rest = g % 100;
+    const parts: string[] = [];
+    if (hundreds > 0) parts.push(`${ones[hundreds]} hundred`);
+    if (rest > 0) {
+      if (rest < 10) parts.push(ones[rest]);
+      else if (rest < 20) parts.push(teens[rest - 10]);
+      else {
+        const t = Math.floor(rest / 10);
+        const o = rest % 10;
+        if (o === 0) parts.push(tens[t]);
+        else parts.push(`${tens[t]}-${ones[o]}`);
+      }
+    }
+    return parts.join(" ");
+  };
+
+  const groups: number[] = [];
+  let rest = Math.floor(n);
+  while (rest > 0) {
+    groups.push(rest % 1000);
+    rest = Math.floor(rest / 1000);
+  }
+
+  const out: string[] = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    if (groups[i] === 0) continue;
+    out.push(readUnder1000(groups[i]));
+    if (scales[i]) out.push(scales[i]);
+  }
+  const phrase = out.join(" ").trim();
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1) + " VND only./.";
+}
+
+// =========================================================================
+// Locale strings for VI / EN modes. Two languages = two complete label sets;
+// Vietnamese mode uses the Vietnamese number converter, English uses the
+// English one. Product names + customer-typed fields are passthroughs.
+// =========================================================================
+
+type Lang = "vi" | "en";
+
+interface LocaleStrings {
+  title: string;
+  to: string;
+  rfp: string;
+  date: string;
+  validUntil: string;
+  intro: string;
+  headers: string[]; // 7 cells, matches the 7 table columns
+  totalBeforeVAT: string;
+  vat: string;
+  totalAfterVAT: string;
+  termsTitle: string;
+  /** First "1. ..." line varies by whether all rows are VAT-exempt. */
+  firstTermLine(vatPct: number, mixed: boolean): string;
+  /** Rest of the T&C — uniform across quotations. */
+  termsRest: { text: string; bold?: boolean }[];
+  notesTitle: string;
+  closingLine: string;
+  yoursSincerely: string;
+  onBehalfHPT: string;
+  customerConfirmation: string;
+  signatoryTitle: string;
+  signatoryName: string;
+  inWords(n: number): string;
+}
+
+const LOCALE: Record<Lang, LocaleStrings> = {
+  vi: {
+    title: "BÁO GIÁ",
+    to: "Kính gửi",
+    rfp: "Đề mục",
+    date: "Ngày",
+    validUntil: "Có hiệu lực đến",
+    intro:
+      "Chúng tôi xin gửi báo giá các sản phẩm theo yêu cầu với giá và quy cách như sau:",
+    headers: [
+      "STT",
+      "Mã hàng",
+      "Mô tả sản phẩm",
+      "SL",
+      "Đơn giá chưa VAT\n(VNĐ)",
+      "Tổng chưa VAT (VNĐ)",
+      "VAT (VNĐ)",
+      "Tổng có VAT\n(VNĐ)",
+    ],
+    totalBeforeVAT: "Tổng cộng chưa VAT (VNĐ):",
+    vat: "VAT (VNĐ):",
+    totalAfterVAT: "Tổng cộng có VAT (VNĐ):",
+    termsTitle: "ĐIỀU KHOẢN & ĐIỀU KIỆN:",
+    firstTermLine: (vatPct, mixed) =>
+      mixed
+        ? "1. VAT áp dụng theo từng mục như bảng trên."
+        : vatPct === 0
+          ? "1. Hiện tại, phần mềm không chịu VAT."
+          : `1. Hiện tại, VAT cho phần cứng là ${vatPct}%.`,
+    termsRest: [
+      {
+        text:
+          "    Trường hợp Chính phủ thay đổi mức VAT tại thời điểm xuất hóa đơn, VAT sẽ áp dụng theo mức mới.",
+      },
+      { text: "2. Thanh toán: T/T hoặc tiền mặt." },
+      {
+        text:
+          "    2.1. Điều khoản thanh toán: 100% trong vòng 30 ngày sau khi hoàn tất giao hàng và nhận đủ chứng từ thanh toán.",
+      },
+      { text: "    2.2. Số tài khoản của HPT Việt Nam:" },
+      { text: "    Công ty CP Dịch vụ Công nghệ Tin học HPT", bold: true },
+      { text: "    Số TK: 3150763149 VND", bold: true },
+      {
+        text:
+          "    Ngân hàng: Ngân hàng TMCP Đầu tư và Phát triển Việt Nam (BIDV) – Chi nhánh Phú Nhuận",
+        bold: true,
+      },
+      { text: "3. Thời gian giao hàng: 02 đến 03 tuần" },
+    ],
+    notesTitle: "GHI CHÚ:",
+    closingLine:
+      "Cám ơn sự quan tâm của Quý khách. Xin liên hệ chúng tôi nếu có thêm thông tin cần trao đổi.",
+    yoursSincerely: "Trân trọng,",
+    onBehalfHPT: "Đại diện HPT",
+    customerConfirmation: "Xác nhận của khách hàng",
+    signatoryTitle: "GIÁM ĐỐC KINH DOANH",
+    signatoryName: "ĐẶNG VŨ THÙY LINH",
+    inWords: (n) => `(Bằng chữ: ${vndInWords(n)})`,
+  },
+  en: {
+    title: "QUOTATION",
+    to: "To",
+    rfp: "RFP",
+    date: "Date",
+    validUntil: "Valid until",
+    intro:
+      "We would like to offer the required products with our prices and specifications as follows:",
+    headers: [
+      "No",
+      "Part Number",
+      "Product Description",
+      "Qty",
+      "Unit Price Before\nVAT (VNĐ)",
+      "Total Before VAT (VNĐ)",
+      "VAT (VNĐ)",
+      "Total After\nVAT (VNĐ)",
+    ],
+    totalBeforeVAT: "Total Before VAT (VNĐ):",
+    vat: "VAT (VNĐ):",
+    totalAfterVAT: "Total After VAT (VNĐ):",
+    termsTitle: "TERMS & CONDITIONS:",
+    firstTermLine: (vatPct, mixed) =>
+      mixed
+        ? "1. VAT applies per item as listed in the table above."
+        : vatPct === 0
+          ? "1. At present, software is not subject to VAT."
+          : `1. At present, the VAT on hardware is ${vatPct}%.`,
+    termsRest: [
+      {
+        text:
+          "    In case the Government changes the VAT rate at the time of issuing the tax invoice, the new VAT rate will apply.",
+      },
+      { text: "2. Payment: T/T or cash." },
+      {
+        text:
+          "    2.1. Payment term: 100% within 30 days after the completion of delivery and receipt of payment documents.",
+      },
+      { text: "    2.2. Account number of HPT Vietnam as follows:" },
+      { text: "    HPT Vietnam Corp.", bold: true },
+      { text: "    Account No.: 3150763149 VND", bold: true },
+      {
+        text:
+          "    Bank: Joint Stock Commercial Bank for Investment and Development of Vietnam (BIDV) – Phu Nhuan Branch",
+        bold: true,
+      },
+      { text: "3. Delivery time: 02 to 03 weeks" },
+    ],
+    notesTitle: "NOTES:",
+    closingLine:
+      "Thank you for your attention. Please feel free to contact us for any further information.",
+    yoursSincerely: "Yours Sincerely,",
+    onBehalfHPT: "On behalf of HPT",
+    customerConfirmation: "Customer's confirmation",
+    signatoryTitle: "SALES DIRECTOR",
+    signatoryName: "DANG VU THUY LINH",
+    inWords: (n) => `(In Words: ${vndInWordsEN(n)})`,
+  },
+};
+
 // Style helpers for the totals block. Layout is 8 columns A:H, with the
 // label merged across A:E and the value sitting in one of F/G/H.
 function styleTotalsLabel(cell: ExcelJS.Cell): void {
@@ -744,15 +944,22 @@ function styleTotalsValueRow(ws: ExcelJS.Worksheet, row: number): void {
 export async function renderQuotationXLSX(
   quotation: Quotation,
   account: Account | null,
+  lang: Lang = "vi",
 ): Promise<Buffer> {
   const items = (quotation.items ?? []) as unknown as QuotationItem[];
   const taxPct = quotation.tax ?? 0;
   const overallDiscount = quotation.discount ?? 0;
+  const L = LOCALE[lang];
+
+  // For the T&C "1." wording, find a representative VAT rate. If all rows
+  // share the same vatPct, use that; if mixed, signal mixed-mode so the
+  // first term line reads "VAT applies per item as listed".
+  const vatRates = items.map((it) => it.vatPct ?? taxPct);
+  const uniqueVatRates = Array.from(new Set(vatRates));
+  const headlineVat = uniqueVatRates.length === 1 ? uniqueVatRates[0] : taxPct;
+  const mixedVat = uniqueVatRates.length > 1;
 
   // Resolve part numbers (SKU) for items that came from the product catalog.
-  // Sample template puts the SKU on its own line under the product display
-  // name ("FG-80F-BDL-950-60" below "FortiGate 80F device"), so we want the
-  // real SKU when available, falling back to vendor or empty string.
   const productIds = items
     .map((it) => it.productId)
     .filter((x): x is string => !!x);
@@ -766,15 +973,6 @@ export async function renderQuotationXLSX(
   const skuById = new Map(products.map((p) => [p.id, p.sku ?? ""]));
   const partNumberOf = (it: QuotationItem): string =>
     (it.productId && skuById.get(it.productId)) || it.vendor || "";
-
-  // Hardware vs software boilerplate depends on whether VAT applies.
-  // Sample 1 (Fortinet license renewal) had tax=0, sample 2 (hardware
-  // bundle) had tax=8. Both wordings come from the team's real templates.
-  const isSoftware = taxPct === 0;
-  const productNoun = isSoftware ? "software" : "hardware";
-  const vatTerm = isSoftware
-    ? "1. At present, software is not subject to VAT."
-    : `1. At present, the VAT on hardware is ${taxPct}%.`;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "HSI Sales AI";
@@ -831,11 +1029,11 @@ export async function renderQuotationXLSX(
   ws.getRow(1).height = 48;
 
   // -----------------------------------------------------------------------
-  // Row 2: "QUOTATION" title (font 20 bold navy, centered).
+  // Row 2: title (font 20 bold navy, centered) — "QUOTATION" or "BÁO GIÁ".
   // -----------------------------------------------------------------------
   ws.mergeCells("A2:H2");
   const a2 = ws.getCell("A2");
-  a2.value = "QUOTATION";
+  a2.value = L.title;
   a2.font = arial(20, { bold: true, color: { argb: NAVY } });
   a2.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(2).height = 37.5;
@@ -843,10 +1041,10 @@ export async function renderQuotationXLSX(
   // -----------------------------------------------------------------------
   // Row 3: To: <customer> (bold) on the left, Date in H3 (italic right).
   // -----------------------------------------------------------------------
-  ws.getCell("B3").value = `    To: ${account?.companyName ?? "—"}`;
+  ws.getCell("B3").value = `    ${L.to}: ${account?.companyName ?? "—"}`;
   ws.getCell("B3").font = arial(10, { bold: true });
   ws.getCell("B3").alignment = { horizontal: "left", vertical: "top" };
-  ws.getCell("H3").value = `Date: ${vndDate(quotation.createdAt)}`;
+  ws.getCell("H3").value = `${L.date}: ${vndDate(quotation.createdAt)}`;
   ws.getCell("H3").font = arial(10, { italic: true });
   ws.getCell("H3").alignment = { horizontal: "right", vertical: "middle" };
   ws.getRow(3).height = 15;
@@ -854,10 +1052,10 @@ export async function renderQuotationXLSX(
   // -----------------------------------------------------------------------
   // Row 4: RFP / Valid until.
   // -----------------------------------------------------------------------
-  ws.getCell("B4").value = `    RFP: ${quotation.title}`;
+  ws.getCell("B4").value = `    ${L.rfp}: ${quotation.title}`;
   ws.getCell("B4").font = arial(10, { bold: true });
   ws.getCell("B4").alignment = { horizontal: "left", vertical: "top" };
-  ws.getCell("H4").value = `Valid until: ${
+  ws.getCell("H4").value = `${L.validUntil}: ${
     quotation.validUntil ? vndDate(quotation.validUntil) : "—"
   }`;
   ws.getCell("H4").font = arial(10, { italic: true });
@@ -869,8 +1067,7 @@ export async function renderQuotationXLSX(
   // -----------------------------------------------------------------------
   ws.mergeCells("A5:H5");
   const a5 = ws.getCell("A5");
-  a5.value =
-    "We would like to offer the required products with our prices and specifications as follows:";
+  a5.value = L.intro;
   a5.font = arial(10);
   ws.getRow(5).height = 13.5;
 
@@ -883,16 +1080,7 @@ export async function renderQuotationXLSX(
   // -----------------------------------------------------------------------
   const headerRow = 8;
   ws.getRow(headerRow).height = 27.75;
-  const headers = [
-    "No",
-    "Part Number",
-    "Product Description",
-    "Qty",
-    "Unit Price Before\nVAT (VNĐ)",
-    "Tolal Before VAT (VNĐ)",
-    "VAT (VNĐ)",
-    "Total After\nVAT (VNĐ)",
-  ];
+  const headers = L.headers;
   headers.forEach((h, i) => {
     const cell = ws.getCell(headerRow, i + 1);
     cell.value = h;
@@ -1075,7 +1263,7 @@ export async function renderQuotationXLSX(
   const totalsStart = row;
   // Row N: Total Before VAT
   ws.mergeCells(`A${row}:E${row}`);
-  ws.getCell(`A${row}`).value = "Total Before VAT (VNĐ):";
+  ws.getCell(`A${row}`).value = L.totalBeforeVAT;
   styleTotalsLabel(ws.getCell(`A${row}`));
   styleTotalsValueRow(ws, row);
   ws.getCell(`F${row}`).value =
@@ -1092,7 +1280,7 @@ export async function renderQuotationXLSX(
 
   // Row N+1: VAT
   ws.mergeCells(`A${row}:E${row}`);
-  ws.getCell(`A${row}`).value = "VAT (VNĐ):";
+  ws.getCell(`A${row}`).value = L.vat;
   styleTotalsLabel(ws.getCell(`A${row}`));
   styleTotalsValueRow(ws, row);
   ws.getCell(`G${row}`).value =
@@ -1104,7 +1292,7 @@ export async function renderQuotationXLSX(
 
   // Row N+2: Total After VAT
   ws.mergeCells(`A${row}:E${row}`);
-  ws.getCell(`A${row}`).value = "Total After VAT (VNĐ):";
+  ws.getCell(`A${row}`).value = L.totalAfterVAT;
   styleTotalsLabel(ws.getCell(`A${row}`));
   styleTotalsValueRow(ws, row);
   ws.getCell(`H${row}`).value =
@@ -1125,7 +1313,7 @@ export async function renderQuotationXLSX(
   const inWordsRow = row;
   ws.mergeCells(`A${inWordsRow}:H${inWordsRow}`);
   const inWords = ws.getCell(`A${inWordsRow}`);
-  inWords.value = `(In Words: ${vndInWords(grandTotal)})`;
+  inWords.value = L.inWords(grandTotal);
   inWords.font = arial(10, {
     italic: true,
     bold: true,
@@ -1172,36 +1360,16 @@ export async function renderQuotationXLSX(
   row++;
 
   // -----------------------------------------------------------------------
-  // TERMS & CONDITIONS — dynamic based on tax (hardware vs software).
+  // TERMS & CONDITIONS — pulled from the language locale. First "1. ..." line
+  // varies by the dominant VAT % (or mixed-mode signal); rest is uniform.
   // -----------------------------------------------------------------------
-  ws.getCell(`A${row}`).value = "TERMS & CONDITIONS:";
+  ws.getCell(`A${row}`).value = L.termsTitle;
   ws.getCell(`A${row}`).font = arial(10, { bold: true });
   row++;
 
-  // The block is mostly plain text, but the HPT bank info lines (HPT
-  // VietNam Corp., Account No., Bank) are bold in the source template —
-  // explicit per-line bold flag to match.
   const terms: Array<{ text: string; bold?: boolean }> = [
-    { text: vatTerm },
-    {
-      text: "    In case, the Government change VAT rate at the time of issue tax invoice, VAT is subject to the new VAT rate.",
-    },
-    { text: "2. Payment: T/T or cash." },
-    {
-      text: `    2.1.  Payment term: 100% within 30 days after the completion of ${productNoun} delivery and receipt of payment document.`,
-    },
-    { text: "    2.2.  Account number of HPT Vietnam as follows:" },
-    { text: "    HPT VietNam Corp.", bold: true },
-    { text: "    Account No.: 3150763149 VND", bold: true },
-    {
-      text: "    Bank: Joint Stock Commercial Bank for Investment and Development of Vietnam (BIDV) – Phu Nhuan Branch",
-      bold: true,
-    },
-    {
-      text: isSoftware
-        ? "3. Delivery time: 02 to 03 weeks"
-        : "3. Delivery time: 06 to 12 weeks",
-    },
+    { text: L.firstTermLine(headlineVat, mixedVat) },
+    ...L.termsRest,
   ];
   terms.forEach((t) => {
     const cell = ws.getCell(`B${row}`);
@@ -1218,7 +1386,7 @@ export async function renderQuotationXLSX(
   // Optional notes from the quotation itself.
   if (quotation.notes) {
     row++;
-    ws.getCell(`A${row}`).value = "NOTES:";
+    ws.getCell(`A${row}`).value = L.notesTitle;
     ws.getCell(`A${row}`).font = arial(10, { bold: true });
     row++;
     ws.mergeCells(`A${row}:H${row}`);
@@ -1233,23 +1401,22 @@ export async function renderQuotationXLSX(
   // Closing + signature.
   // -----------------------------------------------------------------------
   row++;
-  ws.getCell(`A${row}`).value =
-    "Thank you for your attention. Please feel free to contact us for any further information.";
+  ws.getCell(`A${row}`).value = L.closingLine;
   ws.getCell(`A${row}`).font = arial(10);
   row++;
-  ws.getCell(`A${row}`).value = "Yours Sincerely,";
+  ws.getCell(`A${row}`).value = L.yoursSincerely;
   ws.getCell(`A${row}`).font = arial(10);
   row += 2;
 
-  // Signature headers: HPT side in B, customer side in G (matches new template).
-  ws.getCell(`B${row}`).value = "On behalf of HPT";
+  // Signature headers: HPT side in B, customer side in G (matches template).
+  ws.getCell(`B${row}`).value = L.onBehalfHPT;
   ws.getCell(`B${row}`).font = arial(10, { bold: true });
   ws.getCell(`B${row}`).alignment = {
     horizontal: "center",
     vertical: "middle",
     wrapText: true,
   };
-  ws.getCell(`G${row}`).value = "Customer's confirmation";
+  ws.getCell(`G${row}`).value = L.customerConfirmation;
   ws.getCell(`G${row}`).font = arial(10, { bold: true });
   ws.getCell(`G${row}`).alignment = {
     horizontal: "center",
@@ -1259,12 +1426,12 @@ export async function renderQuotationXLSX(
   ws.getRow(row).height = 13.5;
   row++;
 
-  ws.getCell(`B${row}`).value = "SALES DIRECTOR";
+  ws.getCell(`B${row}`).value = L.signatoryTitle;
   ws.getCell(`B${row}`).font = arial(10, { bold: true });
   ws.getCell(`B${row}`).alignment = { horizontal: "center", vertical: "middle" };
   row += 6;
 
-  ws.getCell(`B${row}`).value = "DANG VU THUY LINH";
+  ws.getCell(`B${row}`).value = L.signatoryName;
   ws.getCell(`B${row}`).font = arial(10, { bold: true });
   ws.getCell(`B${row}`).alignment = { horizontal: "center", vertical: "top" };
 
