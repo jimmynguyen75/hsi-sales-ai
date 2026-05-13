@@ -1138,24 +1138,17 @@ export async function renderQuotationXLSX(
     const dRow = row;
     detailRows.push(dRow);
 
-    // Effective sell price per unit uses the gross-margin formula:
-    //   sell = cost / (1 - margin/100)
-    // The exported quotation shows the customer-facing sell price in column E,
-    // not the internal cost. Legacy discount field still folded in for old
-    // quotations not yet migrated.
+    // unitPrice already reflects the sell price after margin — see
+    // recompute() in routes/quotations.ts. Column E in the XLSX matches
+    // what the editor's Đơn giá column shows. Legacy "% CK" discount still
+    // folded in for older quotations not yet migrated.
     //
-    // VAT is per-row (vatPct). Falls back to the legacy quotation-level
+    // VAT is per-row (vatPct), falling back to the legacy quotation-level
     // taxPct only for items predating the per-row migration.
-    const margin = it.margin ?? 0;
     const lineVatPct = it.vatPct ?? taxPct;
-    const afterDiscount = Math.round(
+    const effectiveUnitPrice = Math.round(
       it.unitPrice * (1 - (it.discount ?? 0) / 100),
     );
-    const marginDivisor = 1 - margin / 100;
-    const effectiveUnitPrice =
-      margin === 0 || marginDivisor <= 0.0001
-        ? afterDiscount
-        : Math.round(afterDiscount / marginDivisor);
     const lineBeforeVAT = effectiveUnitPrice * it.qty;
     const lineVAT = Math.round(lineBeforeVAT * (lineVatPct / 100));
 
@@ -1240,15 +1233,10 @@ export async function renderQuotationXLSX(
   // Totals block — 3 rows. Label merged A:E, value in F/G/H respectively.
   // SUM formulas reference each item's DETAIL row (not group-header row).
   // -----------------------------------------------------------------------
-  // Helper: same gross-margin formula used per row above.
-  const sellUnitOf = (it: QuotationItem): number => {
-    const margin = it.margin ?? 0;
-    const eup = Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
-    const divisor = 1 - margin / 100;
-    return margin === 0 || divisor <= 0.0001
-      ? eup
-      : Math.round(eup / divisor);
-  };
+  // Helper: post-discount unit price (margin already baked into unitPrice
+  // upstream).
+  const sellUnitOf = (it: QuotationItem): number =>
+    Math.round(it.unitPrice * (1 - (it.discount ?? 0) / 100));
   // Per-item pre-VAT subtotal — same formula as each row's F column.
   const sumE_perItem = items.reduce(
     (s, it) => s + sellUnitOf(it) * it.qty,

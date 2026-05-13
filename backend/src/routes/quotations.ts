@@ -111,16 +111,16 @@ interface LineItem {
   description?: string;
   vendor?: string;
   qty: number;
-  // Đơn giá = the partner / cost price typed by the sales rep. The selling
-  // price is derived from cost + margin (see below); lineTotal already
-  // reflects the multiplied result.
+  // Đơn giá = sell price per unit. Margin is already baked in. lineTotal is
+  // a clean qty × unitPrice multiplication that matches what the rep sees in
+  // the table. When the rep types margin, the frontend re-derives unitPrice
+  // from the implicit cost (currentUnit × (1 - oldMargin/100)) so the
+  // displayed price always reflects the current margin.
   unitPrice: number;
-  // Gross margin %, defined the standard accounting way:
+  // Gross margin % the unit price was set at. Standard accounting form:
   //   margin% = (sell - cost) / sell × 100
-  // Effective sell-per-unit is the inverse:
-  //   sell = cost / (1 - margin/100)
-  // Optional; defaults to 0. Capped just under 100 — at 100 the divisor
-  // would be 0 (infinite price).
+  // Stored alongside unitPrice for traceability — when the rep edits margin,
+  // the frontend uses this old value to back-out the implicit cost.
   margin?: number | null;
   // Per-row VAT %. Different line items may have different VAT rates
   // (software often 0/exempt, hardware 8/10). Defaults to 10.
@@ -147,17 +147,19 @@ function recompute(
   _overallDiscount: number,
   legacyTax: number,
 ): { items: LineItem[]; subtotal: number; total: number } {
-  // Pricing model (gross margin):
-  //   effective sell per unit = unitPrice / (1 - margin/100)
-  //   lineTotal (pre-VAT)     = qty × effective sell
-  //   lineVAT                 = lineTotal × (vatPct / 100)
-  //   subtotal                = Σ lineTotal
-  //   total (post-VAT)        = Σ lineTotal + Σ lineVAT
+  // Pricing model:
+  //   unitPrice already reflects the desired margin (sell price per unit).
+  //   lineTotal (pre-VAT) = qty × unitPrice          ← clean visible math
+  //   lineVAT             = lineTotal × (vatPct / 100)
+  //   subtotal            = Σ lineTotal
+  //   total (post-VAT)    = Σ lineTotal + Σ lineVAT
   //
-  // Migrations:
-  // - Legacy line "% CK" discount folds into unitPrice on save.
-  // - Legacy quotation-level tax migrates to per-row vatPct the first time
-  //   a row is missing vatPct. Newly created items default to vatPct=10.
+  // Margin is informational here — the frontend updates unitPrice when the
+  // rep changes margin (see QuotationDetail.tsx). Backend just multiplies.
+  //
+  // Legacy migration on save:
+  // - Line "% CK" discount folds into unitPrice and resets discount to 0.
+  // - Quotation-level tax migrates to per-row vatPct on first save.
   const defaultVat = legacyTax || 10;
   const recalced = items.map((it) => {
     const lineDiscount = it.discount ?? 0;
@@ -166,14 +168,7 @@ function recompute(
         ? Math.round(it.unitPrice * (1 - lineDiscount / 100))
         : it.unitPrice;
     const margin = it.margin ?? 0;
-    // Gross margin → sell = cost / (1 - margin/100). The schema caps margin
-    // strictly below 100, but defend against a divisor close to zero anyway.
-    const divisor = 1 - margin / 100;
-    const effectiveUnit =
-      margin === 0 || divisor <= 0.0001
-        ? baseUnit
-        : Math.round(baseUnit / divisor);
-    const lineTotal = effectiveUnit * it.qty;
+    const lineTotal = baseUnit * it.qty;
     const vatPct = it.vatPct ?? defaultVat;
     const lineVAT = Math.round(lineTotal * (vatPct / 100));
     return {
