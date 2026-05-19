@@ -10,6 +10,8 @@ import {
   assessHealth,
   chatWithAccount,
 } from "../services/crm-ai.js";
+import { renderAccountInfoXLSX } from "../services/document-export.js";
+import { logAudit } from "../services/audit.js";
 
 export const accountsRouter = Router();
 
@@ -145,6 +147,58 @@ accountsRouter.delete<{ id: string }>("/:id", requireRole("admin"), async (req, 
   try {
     await prisma.account.delete({ where: { id: req.params.id } });
     ok(res, { deleted: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/accounts/:id/export.xlsx — export "Thông tin khách hàng"
+// using the team's customer-info template. RBAC mirrors GET /:id.
+accountsRouter.get("/:id/export.xlsx", async (req, res, next) => {
+  try {
+    const account = await prisma.account.findUnique({
+      where: { id: req.params.id },
+      include: {
+        contacts: { orderBy: { isPrimary: "desc" } },
+        owner: { select: { id: true, name: true, email: true } },
+      },
+    });
+    if (!account) return fail(res, 404, "Not found");
+    if (!canViewAll(req.userRole) && account.ownerId !== req.userId) {
+      return fail(res, 403, "Bạn không có quyền xem account này.");
+    }
+
+    // Pick the primary contact if there is one; otherwise the first contact;
+    // otherwise null (template still renders with "—" placeholders).
+    const primary =
+      account.contacts.find((c) => c.isPrimary) ?? account.contacts[0] ?? null;
+
+    const buf = await renderAccountInfoXLSX(account, primary, account.owner);
+    // Sanitize the company name for the filename so non-ASCII + spaces don't
+    // trip up Content-Disposition. Falls back to the account id if empty.
+    const safe = (account.companyName || account.id)
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9-_ ]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .slice(0, 60) || account.id;
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="customer-info-${safe}.xlsx"`,
+    );
+    res.setHeader("Content-Length", buf.length.toString());
+    await logAudit(req, {
+      action: "export",
+      entity: "account",
+      entityId: account.id,
+      summary: `Xuất thông tin khách hàng ${account.companyName}`,
+    });
+    res.end(buf);
   } catch (e) {
     next(e);
   }

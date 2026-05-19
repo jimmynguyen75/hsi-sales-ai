@@ -14,8 +14,10 @@ import {
   Plus,
   Pencil,
   Trash2,
+  FileSpreadsheet,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, downloadFile } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 import type { Account, Activity as ActivityT, Contact, Deal, HealthResult } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -32,6 +34,8 @@ import { AccountDialog } from "./AccountDialog";
 type Tab = "timeline" | "contacts" | "deals" | "insights";
 
 export function AccountDetail() {
+  const toast = useToast();
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -169,6 +173,36 @@ export function AccountDetail() {
                 <Button variant="outline" size="sm" onClick={() => setChatOpen((v) => !v)}>
                   <MessageCircle className="h-3.5 w-3.5" />
                   AI Chat
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={downloadingXlsx}
+                  disabled={downloadingXlsx}
+                  title="Xuất thông tin khách hàng ra Excel theo template HPT"
+                  onClick={async () => {
+                    if (!account) return;
+                    setDownloadingXlsx(true);
+                    try {
+                      // Server picks the filename; keep a sensible default
+                      // here in case it's missing from the response.
+                      await downloadFile(
+                        `/accounts/${account.id}/export.xlsx`,
+                        `customer-info-${account.id}.xlsx`,
+                      );
+                      toast.success("Đã tải file Excel");
+                    } catch (err) {
+                      toast.error(
+                        "Tải Excel thất bại",
+                        err instanceof Error ? err.message : String(err),
+                      );
+                    } finally {
+                      setDownloadingXlsx(false);
+                    }
+                  }}
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Xuất Excel
                 </Button>
                 {canDeleteAccount && (
                   <Button
