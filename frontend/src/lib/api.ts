@@ -66,9 +66,15 @@ export async function downloadFile(path: string, suggestedName: string): Promise
     throw new Error(msg);
   }
 
+  // Prefer the RFC 5987 `filename*=UTF-8''...` form when present — that's
+  // the one carrying Vietnamese diacritics. Fall back to the plain
+  // `filename="..."` (ASCII), then the suggested name.
   const disposition = res.headers.get("Content-Disposition") ?? "";
-  const match = /filename="([^"]+)"/.exec(disposition);
-  const filename = match?.[1] ?? suggestedName;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const ascii = /filename="([^"]+)"/.exec(disposition);
+  const filename = utf8
+    ? decodeURIComponent(utf8[1])
+    : (ascii?.[1] ?? suggestedName);
 
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);

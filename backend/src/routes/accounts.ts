@@ -176,22 +176,29 @@ accountsRouter.get("/:id/export.xlsx", async (req, res, next) => {
       account.contacts.find((c) => c.isPrimary) ?? account.contacts[0] ?? null;
 
     const buf = await renderAccountInfoXLSX(account, primary, account.owner);
-    // Sanitize the company name for the filename so non-ASCII + spaces don't
-    // trip up Content-Disposition. Falls back to the account id if empty.
-    const safe = (account.companyName || account.id)
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-zA-Z0-9-_ ]/g, "")
-      .trim()
-      .replace(/\s+/g, "-")
-      .slice(0, 60) || account.id;
+
+    // Filename matches the team's convention: "Thông tin khách hàng
+    // <company>.xlsx". Non-ASCII chars require RFC 5987 encoding — the
+    // `filename*=` form lets modern browsers preserve Vietnamese
+    // diacritics, while `filename=` keeps an ASCII fallback for older
+    // clients (diacritics stripped, kept readable).
+    const pretty = `Thông tin khách hàng ${account.companyName || account.id}.xlsx`;
+    const asciiFallback =
+      pretty
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .replace(/[^\x20-\x7e]/g, "") || `customer-info-${account.id}.xlsx`;
+    const encoded = encodeURIComponent(pretty);
+
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="customer-info-${safe}.xlsx"`,
+      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`,
     );
     res.setHeader("Content-Length", buf.length.toString());
     await logAudit(req, {
