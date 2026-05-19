@@ -1487,8 +1487,11 @@ export async function renderQuotationXLSX(
 interface AccountInfoContact {
   fullName: string;
   title?: string | null;
+  department?: string | null;
+  birthday?: Date | string | null;
   email?: string | null;
   phone?: string | null;
+  description?: string | null;
 }
 
 interface AccountInfoOwner {
@@ -1656,8 +1659,8 @@ export async function renderAccountInfoXLSX(
   writeSectionBanner("1/ Thông tin Account");
   writeTableHeader();
   writeRow(1, "Tên", account.companyName);
-  writeRow(2, "Thành viên của (nếu có)", null);
-  writeRow(3, "MST", null); // schema lacks taxCode
+  writeRow(2, "Thành viên của (nếu có)", account.parentCompany);
+  writeRow(3, "MST", account.taxCode);
   writeRow(4, "Mảng khách hàng", account.industry);
   writeRow(5, "Website", account.website);
   writeRow(6, "Địa chỉ", account.address);
@@ -1673,10 +1676,14 @@ export async function renderAccountInfoXLSX(
   writeRow(1, "Họ và tên", primaryContact?.fullName);
   writeRow(2, "Số điện thoại", primaryContact?.phone);
   writeRow(3, "Chức vụ", primaryContact?.title);
-  writeRow(4, "Phòng ban", null);
-  writeRow(5, "Sinh nhật (nếu có)", null);
+  writeRow(4, "Phòng ban", primaryContact?.department);
+  writeRow(
+    5,
+    "Sinh nhật (nếu có)",
+    primaryContact?.birthday ? vndDate(primaryContact.birthday) : null,
+  );
   writeRow(6, "Email", primaryContact?.email);
-  writeRow(7, "Mô tả: Thông tin sở thích,...(nếu có)", null);
+  writeRow(7, "Mô tả: Thông tin sở thích,...(nếu có)", primaryContact?.description);
 
   // Row 8 "Chăm sóc khách hàng" + boilerplate checklist
   const careStt = 8;

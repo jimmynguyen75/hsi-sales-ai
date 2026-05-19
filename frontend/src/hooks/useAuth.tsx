@@ -7,6 +7,9 @@ interface AuthCtx {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Replace the current user object — used after the profile page saves
+   *  so the sidebar / header reflect the new name/email immediately. */
+  updateUser: (user: User) => void;
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -42,7 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{ user, loading, login, logout, updateUser: setUser }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useAuth(): AuthCtx {

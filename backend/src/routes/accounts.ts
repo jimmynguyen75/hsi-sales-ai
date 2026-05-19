@@ -88,6 +88,8 @@ accountsRouter.get("/:id", async (req, res, next) => {
 
 const createSchema = z.object({
   companyName: z.string().min(1),
+  taxCode: z.string().optional().nullable(),
+  parentCompany: z.string().optional().nullable(),
   industry: z.string().optional(),
   size: z.string().optional(),
   website: z.string().optional(),

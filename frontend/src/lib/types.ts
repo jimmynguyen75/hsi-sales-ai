@@ -8,6 +8,10 @@ export interface User {
 export interface Account {
   id: string;
   companyName: string;
+  /** Mã số thuế. */
+  taxCode: string | null;
+  /** "Thành viên của" — parent corporate group, free-text. */
+  parentCompany: string | null;
   industry: string | null;
   size: string | null;
   website: string | null;
@@ -29,8 +33,12 @@ export interface Contact {
   id: string;
   fullName: string;
   title: string | null;
+  department: string | null;
+  /** ISO date string or null. */
+  birthday: string | null;
   email: string | null;
   phone: string | null;
+  description: string | null;
   isPrimary: boolean;
   accountId: string;
 }

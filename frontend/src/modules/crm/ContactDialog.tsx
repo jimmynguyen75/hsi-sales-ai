@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Contact } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
-import { Input, Label } from "@/components/ui/Input";
+import { Input, Label, Textarea } from "@/components/ui/Input";
 
 interface Props {
   open: boolean;
@@ -23,8 +23,11 @@ export function ContactDialog({ open, accountId, contact, onClose, onSaved }: Pr
   const editing = !!contact;
   const [fullName, setFullName] = useState("");
   const [title, setTitle] = useState("");
+  const [department, setDepartment] = useState("");
+  const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [description, setDescription] = useState("");
   const [isPrimary, setIsPrimary] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -34,8 +37,12 @@ export function ContactDialog({ open, accountId, contact, onClose, onSaved }: Pr
     if (!open) return;
     setFullName(contact?.fullName ?? "");
     setTitle(contact?.title ?? "");
+    setDepartment(contact?.department ?? "");
+    // ISO datetime → YYYY-MM-DD for the date input.
+    setBirthday(contact?.birthday ? contact.birthday.slice(0, 10) : "");
     setEmail(contact?.email ?? "");
     setPhone(contact?.phone ?? "");
+    setDescription(contact?.description ?? "");
     setIsPrimary(contact?.isPrimary ?? false);
     setErr(null);
   }, [open, contact]);
@@ -49,9 +56,13 @@ export function ContactDialog({ open, accountId, contact, onClose, onSaved }: Pr
     try {
       const payload = {
         fullName: fullName.trim(),
-        title: title || undefined,
+        title: title || null,
+        department: department || null,
+        // Send ISO datetime; null clears the field.
+        birthday: birthday ? new Date(birthday).toISOString() : null,
         email: email || "",
-        phone: phone || undefined,
+        phone: phone || null,
+        description: description || null,
         isPrimary,
       };
       if (editing && contact) {
@@ -89,26 +100,55 @@ export function ContactDialog({ open, accountId, contact, onClose, onSaved }: Pr
               autoFocus
             />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Chức vụ</Label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="CTO, Quản lý dự án..."
+              />
+            </div>
+            <div>
+              <Label>Phòng ban</Label>
+              <Input
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="Phòng IT, Kinh doanh..."
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="example@company.com"
+              />
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+          </div>
           <div>
-            <Label>Chức danh</Label>
+            <Label>Sinh nhật (nếu có)</Label>
             <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="VD: CTO, Head of IT..."
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
             />
           </div>
           <div>
-            <Label>Email</Label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="example@company.com"
+            <Label>Mô tả: sở thích, ghi chú,... (nếu có)</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Sở thích cà phê, hay đi gym vào sáng thứ 7..."
             />
-          </div>
-          <div>
-            <Label>Phone</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input

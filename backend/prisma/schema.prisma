@@ -28,16 +28,22 @@ model User {
 }
 
 model Account {
-  id          String   @id @default(cuid())
-  companyName String
-  industry    String?
-  size        String?  // SMB | mid-market | enterprise
-  website     String?
-  address     String?
-  notes       String?  @db.Text
-  healthScore Int?     @default(50)
-  ownerId     String
-  owner       User     @relation(fields: [ownerId], references: [id])
+  id            String   @id @default(cuid())
+  companyName   String
+  // Mã số thuế — Vietnamese tax registration number, 10 or 13 digits.
+  taxCode       String?
+  // "Thành viên của" — name of the parent company / corporate group this
+  // account belongs to. Free-text, no FK since the parent may not exist
+  // as its own account in our CRM.
+  parentCompany String?
+  industry      String?
+  size          String?  // SMB | mid-market | enterprise
+  website       String?
+  address       String?
+  notes         String?  @db.Text
+  healthScore   Int?     @default(50)
+  ownerId       String
+  owner         User     @relation(fields: [ownerId], references: [id])
 
   contacts   Contact[]
   deals      Deal[]
@@ -50,14 +56,18 @@ model Account {
 }
 
 model Contact {
-  id        String  @id @default(cuid())
-  fullName  String
-  title     String?
-  email     String?
-  phone     String?
-  isPrimary Boolean @default(false)
-  accountId String
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  fullName    String
+  title       String?
+  department  String?   // Phòng ban
+  birthday    DateTime? // Sinh nhật — nullable since often unknown
+  email       String?
+  phone       String?
+  // Free text: sở thích, thông tin cá nhân khác.
+  description String?   @db.Text
+  isPrimary   Boolean   @default(false)
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 }

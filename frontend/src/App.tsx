@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { Shell } from "@/layouts/Shell";
 import { LoginPage } from "@/pages/Login";
+import { ProfilePage } from "@/pages/Profile";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { Dashboard } from "@/modules/dashboard/Dashboard";
 import { AccountList } from "@/modules/crm/AccountList";
@@ -64,6 +65,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route path="crm" element={<AccountList />} />
           <Route path="crm/:id" element={<AccountDetail />} />
           <Route path="pipeline" element={<PipelineView />} />

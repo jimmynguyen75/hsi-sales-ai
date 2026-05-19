@@ -24,6 +24,8 @@ interface Props {
 
 const EMPTY = {
   companyName: "",
+  taxCode: "",
+  parentCompany: "",
   industry: "",
   size: "",
   website: "",
@@ -51,6 +53,8 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
     if (account) {
       setForm({
         companyName: account.companyName ?? "",
+        taxCode: account.taxCode ?? "",
+        parentCompany: account.parentCompany ?? "",
         industry: account.industry ?? "",
         size: account.size ?? "",
         website: account.website ?? "",
@@ -115,7 +119,25 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Industry</Label>
+              <Label>MST (Mã số thuế)</Label>
+              <Input
+                value={form.taxCode}
+                onChange={(e) => setForm({ ...form, taxCode: e.target.value })}
+                placeholder="10 hoặc 13 chữ số"
+              />
+            </div>
+            <div>
+              <Label>Thành viên của (nếu có)</Label>
+              <Input
+                value={form.parentCompany}
+                onChange={(e) => setForm({ ...form, parentCompany: e.target.value })}
+                placeholder="Tập đoàn / Tổng công ty..."
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Industry / Mảng khách hàng</Label>
               <Input
                 value={form.industry}
                 onChange={(e) => setForm({ ...form, industry: e.target.value })}

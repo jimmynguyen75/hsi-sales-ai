@@ -226,16 +226,22 @@ export function Shell() {
         </nav>
 
         <div className="border-t border-slate-200 p-2">
-          <div
-            className={cn(
-              "flex items-center rounded-md hover:bg-slate-50",
-              collapsed ? "justify-center p-1" : "gap-2 px-2 py-2",
-            )}
+          {/* Avatar block is now a NavLink to /profile so the user can edit
+              their own info. Logout button sits next to it (or below when
+              collapsed) so the two actions stay reachable. */}
+          <NavLink
+            to="/profile"
+            onClick={() => setOpen(false)}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center rounded-md transition hover:bg-slate-50",
+                collapsed ? "justify-center p-1" : "gap-2 px-2 py-2",
+                isActive && "bg-brand-50",
+              )
+            }
+            title={collapsed ? `${user?.name} — mở trang cá nhân` : "Mở trang cá nhân"}
           >
-            <div
-              className="h-8 w-8 shrink-0 rounded-full bg-slate-200 text-slate-700 grid place-items-center text-xs font-semibold"
-              title={collapsed ? user?.name ?? undefined : undefined}
-            >
+            <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200 text-slate-700 grid place-items-center text-xs font-semibold">
               {user?.name?.charAt(0).toUpperCase() ?? "?"}
             </div>
             {!collapsed && (
@@ -247,7 +253,12 @@ export function Shell() {
                   </div>
                 </div>
                 <button
-                  onClick={handleLogout}
+                  onClick={(e) => {
+                    // Stop propagation so the NavLink doesn't also navigate.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleLogout();
+                  }}
                   className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
                   aria-label="Logout"
                   title="Đăng xuất"
@@ -256,7 +267,7 @@ export function Shell() {
                 </button>
               </>
             )}
-          </div>
+          </NavLink>
           {/* Logout button when collapsed — separate row so the avatar
               keeps its tooltip and the click target stays clean. */}
           {collapsed && (
