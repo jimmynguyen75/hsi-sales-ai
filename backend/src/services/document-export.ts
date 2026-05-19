@@ -1504,174 +1504,294 @@ export async function renderAccountInfoXLSX(
   primaryContact: AccountInfoContact | null,
   owner: AccountInfoOwner | null,
 ): Promise<Buffer> {
-  // Faithful reproduction of the team's "Thông tin khách hàng" template:
-  // - Sheet name "RV"
-  // - Calibri Light 13pt throughout
-  // - Thin borders on every populated cell, no fills, no merged cells
-  // - Section headers are simple bold rows in column A
-  // - Rows 1-2 left blank as in the source
+  // Polished "Thông tin khách hàng" export. Keeps the team's template
+  // structure (Account section + Contact section + care checklist) but
+  // adds branding + visual hierarchy so the file looks at-a-glance like
+  // a real B2B customer fact sheet:
   //
-  // owner is currently unused in the rendered output (the template doesn't
-  // have a "AM" row beyond what's already in the Account section), but
-  // it's kept on the signature for symmetry with renderQuotationXLSX.
-  void owner;
+  //   ┌────────────────────────────────────────────────────┐
+  //   │  [HPT logo]   THÔNG TIN KHÁCH HÀNG                 │  ← title band
+  //   │               Xuất ngày 19/05/2026 • AM: ...        │
+  //   ├────────────────────────────────────────────────────┤
+  //   │ 1/ THÔNG TIN ACCOUNT                                │  ← navy banner
+  //   │ STT │ Nội dung                  │ Giá trị            │  ← header strip
+  //   │  1  │ Tên                       │ HPT Vietnam        │
+  //   │  …  │                           │                    │
+  //   ├────────────────────────────────────────────────────┤
+  //   │ 2/ THÔNG TIN CONTACT                                │
+  //   │ STT │ Nội dung                  │ Giá trị            │
+  //   │  …  │ Chăm sóc khách hàng       │ + bullet 1         │
+  //   │     │ (merged 6 rows)           │ + bullet 2         │
+  //   │     │                           │ + …                │
+  //   └────────────────────────────────────────────────────┘
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "HSI Sales AI";
   wb.created = new Date();
   const ws = wb.addWorksheet("RV");
 
-  // Column widths from the source file.
+  // Wider columns for breathing room. A stays narrow for STT.
   ws.columns = [
-    { width: 5.09 }, // A: STT
-    { width: 35.82 }, // B: Nội dung
-    { width: 65.0 }, // C: Giá trị
+    { width: 7 }, // A: STT
+    { width: 38 }, // B: Nội dung
+    { width: 70 }, // C: Giá trị
   ];
 
+  // ----- Style palette -----
+  const NAVY = "FF1E3A8A";
+  const SLATE_HEADER = "FFE2E8F0"; // slate-200 for table column header
+  const ALT_ROW = "FFF8FAFC"; // slate-50 for alt-row tint
+  const BORDER_GRAY = "FFCBD5E1"; // slate-300 for cell borders
+  const TEXT_DARK = "FF0F172A";
+  const TEXT_MUTED = "FF64748B";
+
   const font = (opts: Partial<ExcelJS.Font> = {}): Partial<ExcelJS.Font> => ({
-    name: "Calibri Light",
-    size: 13,
+    name: "Calibri",
+    size: 11,
+    color: { argb: TEXT_DARK },
     ...opts,
   });
-  const thinAll: Partial<ExcelJS.Borders> = {
-    top: { style: "thin" },
-    bottom: { style: "thin" },
-    left: { style: "thin" },
-    right: { style: "thin" },
-  };
+  const thinBorder = (): Partial<ExcelJS.Border> => ({
+    style: "thin",
+    color: { argb: BORDER_GRAY },
+  });
+  const thinAll = (): Partial<ExcelJS.Borders> => ({
+    top: thinBorder(),
+    bottom: thinBorder(),
+    left: thinBorder(),
+    right: thinBorder(),
+  });
 
-  // Apply the standard cell style: Calibri Light 13, thin border, vertical
-  // center, optional wrap. Source template wraps everywhere except the few
-  // already-narrow rows; we always wrap for safety on long values.
-  function styleCell(
-    cell: ExcelJS.Cell,
-    opts: {
-      bold?: boolean;
-      horizontal?: ExcelJS.Alignment["horizontal"];
-      wrap?: boolean;
-    } = {},
-  ) {
-    cell.font = font({ bold: !!opts.bold });
-    cell.alignment = {
-      horizontal: opts.horizontal,
-      vertical: "middle", // exceljs spelling for what Excel calls "center"
-      wrapText: opts.wrap ?? true,
+  // -----------------------------------------------------------------------
+  // Row 1: HPT logo (A1) + title band (B1:C1)
+  // -----------------------------------------------------------------------
+  if (HPT_LOGO_BUFFER.length > 0) {
+    const logoId = wb.addImage({
+      buffer: HPT_LOGO_BUFFER as unknown as ExcelJS.Buffer,
+      extension: "jpeg",
+    });
+    ws.addImage(logoId, {
+      tl: { col: 0.1, row: 0.15 },
+      ext: { width: 90, height: 50 },
+      editAs: "oneCell",
+    });
+  }
+  ws.mergeCells("B1:C1");
+  const titleCell = ws.getCell("B1");
+  titleCell.value = "THÔNG TIN KHÁCH HÀNG";
+  titleCell.font = font({ size: 20, bold: true, color: { argb: NAVY } });
+  titleCell.alignment = { horizontal: "right", vertical: "middle" };
+  ws.getRow(1).height = 38;
+
+  // Subtitle — "Xuất ngày … • AM: …"
+  ws.mergeCells("A2:C2");
+  const subtitle = ws.getCell("A2");
+  const subtitleParts: string[] = [`Xuất ngày: ${vndDate(new Date())}`];
+  if (owner?.name) subtitleParts.push(`AM: ${owner.name}`);
+  subtitle.value = subtitleParts.join("   •   ");
+  subtitle.font = font({ size: 10, italic: true, color: { argb: TEXT_MUTED } });
+  subtitle.alignment = { horizontal: "right", vertical: "middle" };
+  ws.getRow(2).height = 18;
+  // Thin navy divider under the title band.
+  for (let col = 1; col <= 3; col++) {
+    ws.getCell(2, col).border = {
+      bottom: { style: "medium", color: { argb: NAVY } },
     };
-    cell.border = thinAll;
   }
 
-  // Source has rows 1 + 2 blank. Start emitting at row 3.
-  // ----- Row 3: section header "1/ Thông tin Account:" -----
-  styleCell(ws.getCell("A3"), { bold: true });
-  ws.getCell("A3").value = "1/ Thông tin Account:";
-  styleCell(ws.getCell("B3"), { bold: true });
-  styleCell(ws.getCell("C3"), { bold: true, horizontal: "left" });
-  ws.getRow(3).height = 17;
+  // Track the running row pointer for the body.
+  let row = 4; // leave a small gap after the title band
 
-  // ----- Row 4: table header STT / Nội dung / (empty third) -----
-  styleCell(ws.getCell("A4"), { bold: true });
-  ws.getCell("A4").value = "STT";
-  styleCell(ws.getCell("B4"), { bold: true });
-  ws.getCell("B4").value = "Nội dung";
-  styleCell(ws.getCell("C4"), { bold: true, horizontal: "left" });
-  ws.getRow(4).height = 17;
+  // -----------------------------------------------------------------------
+  // Helper: section banner — full-width navy bar with white text.
+  // -----------------------------------------------------------------------
+  const writeSectionBanner = (label: string) => {
+    ws.mergeCells(`A${row}:C${row}`);
+    const c = ws.getCell(`A${row}`);
+    c.value = label;
+    c.font = font({ size: 12, bold: true, color: { argb: "FFFFFFFF" } });
+    c.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
+    ws.getRow(row).height = 26;
+    row++;
+  };
 
-  // ----- Helper: data row with STT, label, value -----
-  function writeRow(
-    rowNum: number,
+  // -----------------------------------------------------------------------
+  // Helper: table column header (STT / Nội dung / Giá trị).
+  // -----------------------------------------------------------------------
+  const writeTableHeader = () => {
+    const headers = ["STT", "Nội dung", "Giá trị"];
+    headers.forEach((h, i) => {
+      const c = ws.getCell(row, i + 1);
+      c.value = h;
+      c.font = font({ size: 11, bold: true });
+      c.alignment = {
+        horizontal: i === 0 ? "center" : "left",
+        vertical: "middle",
+        indent: i === 0 ? 0 : 1,
+      };
+      c.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: SLATE_HEADER },
+      };
+      c.border = thinAll();
+    });
+    ws.getRow(row).height = 22;
+    row++;
+  };
+
+  // -----------------------------------------------------------------------
+  // Helper: data row with STT, label, value. Alternating tint.
+  // -----------------------------------------------------------------------
+  const writeRow = (
     stt: number,
     label: string,
     value: string | null | undefined,
-    height = 17,
-  ) {
-    styleCell(ws.getCell(rowNum, 1));
-    ws.getCell(rowNum, 1).value = stt;
+    opts: { height?: number } = {},
+  ) => {
+    const tint: ExcelJS.Fill | undefined =
+      stt % 2 === 0
+        ? { type: "pattern", pattern: "solid", fgColor: { argb: ALT_ROW } }
+        : undefined;
 
-    styleCell(ws.getCell(rowNum, 2));
-    ws.getCell(rowNum, 2).value = label;
+    const a = ws.getCell(row, 1);
+    a.value = stt;
+    a.font = font({ color: { argb: TEXT_MUTED } });
+    a.alignment = { horizontal: "center", vertical: "middle" };
+    a.border = thinAll();
+    if (tint) a.fill = tint;
 
-    styleCell(ws.getCell(rowNum, 3), { horizontal: "left" });
-    // Leave empty (no placeholder) when the field has no value — matches
-    // the source where blank cells stay blank.
-    ws.getCell(rowNum, 3).value =
-      value && String(value).trim() ? String(value) : "";
+    const b = ws.getCell(row, 2);
+    b.value = label;
+    b.font = font({ bold: true });
+    b.alignment = { horizontal: "left", vertical: "middle", indent: 1, wrapText: true };
+    b.border = thinAll();
+    if (tint) b.fill = tint;
 
-    ws.getRow(rowNum).height = height;
-  }
+    const c = ws.getCell(row, 3);
+    const v = value && String(value).trim() ? String(value) : "";
+    c.value = v;
+    c.font = font({ color: v ? { argb: TEXT_DARK } : { argb: "FFCBD5E1" } });
+    c.alignment = { horizontal: "left", vertical: "middle", indent: 1, wrapText: true };
+    c.border = thinAll();
+    if (tint) c.fill = tint;
 
-  // ----- Section 1: Account, rows 5..11 -----
-  // Row 5 height=34 in source (companyName usually wraps).
-  writeRow(5, 1, "Tên", account.companyName, 34);
-  writeRow(6, 2, "Thành viên của (nếu có)", account.parentCompany);
-  writeRow(7, 3, "MST", account.taxCode);
-  writeRow(8, 4, "Mảng khách hàng", account.industry);
-  writeRow(9, 5, "Website", account.website);
-  writeRow(10, 6, "Địa chỉ", account.address);
-  writeRow(11, 7, "AM (Người phụ trách)", owner?.name ?? null);
+    const wrapNeeded = (v?.length ?? 0) > 60;
+    ws.getRow(row).height = opts.height ?? (wrapNeeded ? 32 : 22);
+    row++;
+  };
 
-  // ----- Row 12: section header "2/ Thông tin Contact:" -----
-  styleCell(ws.getCell("A12"), { bold: true });
-  ws.getCell("A12").value = "2/ Thông tin Contact:";
-  styleCell(ws.getCell("B12"), { bold: true });
-  styleCell(ws.getCell("C12"), { bold: true, horizontal: "left" });
-  ws.getRow(12).height = 17;
+  // -----------------------------------------------------------------------
+  // SECTION 1: Account info
+  // -----------------------------------------------------------------------
+  writeSectionBanner("1/ THÔNG TIN ACCOUNT");
+  writeTableHeader();
+  writeRow(1, "Tên", account.companyName, { height: 32 });
+  writeRow(2, "Thành viên của (nếu có)", account.parentCompany);
+  writeRow(3, "MST", account.taxCode);
+  writeRow(4, "Mảng khách hàng", account.industry);
+  writeRow(5, "Website", account.website);
+  writeRow(6, "Địa chỉ", account.address);
+  writeRow(7, "AM (Người phụ trách)", owner?.name ?? null);
 
-  // ----- Row 13: table header again for the Contact section -----
-  styleCell(ws.getCell("A13"));
-  ws.getCell("A13").value = "STT";
-  styleCell(ws.getCell("B13"));
-  ws.getCell("B13").value = "Nội dung";
-  styleCell(ws.getCell("C13"), { horizontal: "left" });
-  ws.getRow(13).height = 17;
+  row++; // spacer between sections
 
-  // ----- Section 2: Contact, rows 14..21 -----
-  writeRow(14, 1, "Họ và tên", primaryContact?.fullName);
-  writeRow(15, 2, "Số điện thoại", primaryContact?.phone);
-  writeRow(16, 3, "Chức vụ", primaryContact?.title);
-  writeRow(17, 4, "Phòng ban", primaryContact?.department);
+  // -----------------------------------------------------------------------
+  // SECTION 2: Contact info — first 7 rows like Account, then "Chăm sóc
+  // khách hàng" as a merged STT + label block spanning the 6 bullet rows.
+  // -----------------------------------------------------------------------
+  writeSectionBanner("2/ THÔNG TIN CONTACT");
+  writeTableHeader();
+  writeRow(1, "Họ và tên", primaryContact?.fullName);
+  writeRow(2, "Số điện thoại", primaryContact?.phone);
+  writeRow(3, "Chức vụ", primaryContact?.title);
+  writeRow(4, "Phòng ban", primaryContact?.department);
   writeRow(
-    18,
     5,
     "Sinh nhật (nếu có)",
     primaryContact?.birthday ? vndDate(primaryContact.birthday) : null,
   );
-  writeRow(19, 6, "Email", primaryContact?.email);
-  writeRow(
-    20,
-    7,
-    "Mô tả: Thông tin sở thích,...(nếu có)",
-    primaryContact?.description,
-    34,
-  );
-  // Row 21: "8 | Chăm sóc khách hàng" with empty C — bullet items go in
-  // rows 22..27 (column B only). Matches the source layout exactly.
-  writeRow(21, 8, "Chăm sóc khách hàng", null);
+  writeRow(6, "Email", primaryContact?.email);
+  writeRow(7, "Mô tả: Thông tin sở thích,…", primaryContact?.description, { height: 36 });
 
-  // ----- Rows 22..27: "Chăm sóc khách hàng" bullet items -----
-  // In the source, A and C are empty (bordered) — only column B carries
-  // the bullet text. Heights vary: 34, 51, 17, 34, 34, 17.
-  const careItems: Array<{ text: string; height: number }> = [
-    { text: "+ Gửi tin nhắn chúc mừng sinh nhật cá nhân", height: 34 },
-    {
-      text:
-        "+ Gửi tin nhắn chúc mừng sinh nhật ngành (Quân đội, báo chí, y tế,…)",
-      height: 51,
-    },
-    { text: "+ Gửi tin nhắn 8/3, 20/10", height: 17 },
-    { text: "+ Gửi tin nhắn dịp lễ (30/4, 1/5, 2/9)", height: 34 },
-    { text: "+ Danh sách khách hàng tặng quà tết", height: 34 },
-    { text: "+ Nghỉ hưu", height: 17 },
+  // Care block — STT 8, label "Chăm sóc khách hàng", merged across 6 rows.
+  const careTop = row;
+  const careStt = 8;
+  const careItems = [
+    "+ Gửi tin nhắn chúc mừng sinh nhật cá nhân",
+    "+ Gửi tin nhắn chúc mừng sinh nhật ngành (Quân đội, báo chí, y tế,…)",
+    "+ Gửi tin nhắn 8/3, 20/10",
+    "+ Gửi tin nhắn dịp lễ (30/4, 1/5, 2/9)",
+    "+ Danh sách khách hàng tặng quà tết",
+    "+ Nghỉ hưu",
   ];
-  careItems.forEach((c, i) => {
-    const r = 22 + i;
-    styleCell(ws.getCell(r, 1));
-    styleCell(ws.getCell(r, 2));
-    ws.getCell(r, 2).value = c.text;
-    styleCell(ws.getCell(r, 3), { horizontal: "left" });
-    ws.getRow(r).height = c.height;
-  });
+  const careBottom = careTop + careItems.length - 1;
+  const careTint: ExcelJS.Fill | undefined =
+    careStt % 2 === 0
+      ? { type: "pattern", pattern: "solid", fgColor: { argb: ALT_ROW } }
+      : undefined;
 
-  // Page setup so print preview is sensible.
+  // Merge STT cell vertically across all 6 care rows.
+  ws.mergeCells(`A${careTop}:A${careBottom}`);
+  const sttCell = ws.getCell(`A${careTop}`);
+  sttCell.value = careStt;
+  sttCell.font = font({ color: { argb: TEXT_MUTED } });
+  sttCell.alignment = { horizontal: "center", vertical: "middle" };
+  sttCell.border = thinAll();
+  if (careTint) sttCell.fill = careTint;
+
+  // Merge label cell vertically across all 6 care rows.
+  ws.mergeCells(`B${careTop}:B${careBottom}`);
+  const labelCell = ws.getCell(`B${careTop}`);
+  labelCell.value = "Chăm sóc khách hàng";
+  labelCell.font = font({ bold: true });
+  labelCell.alignment = { horizontal: "left", vertical: "middle", indent: 1, wrapText: true };
+  labelCell.border = thinAll();
+  if (careTint) labelCell.fill = careTint;
+
+  // One bullet per row in column C.
+  careItems.forEach((text, i) => {
+    const r = careTop + i;
+    const c = ws.getCell(r, 3);
+    c.value = text;
+    c.font = font();
+    c.alignment = { horizontal: "left", vertical: "middle", indent: 1, wrapText: true };
+    c.border = thinAll();
+    if (careTint) c.fill = careTint;
+    ws.getRow(r).height = 22;
+  });
+  row = careBottom + 1;
+
+  // -----------------------------------------------------------------------
+  // Optional notes from the account itself (free-text "Ghi chú" field).
+  // -----------------------------------------------------------------------
+  if (account.notes && account.notes.trim()) {
+    row++; // spacer
+    writeSectionBanner("3/ GHI CHÚ");
+    ws.mergeCells(`A${row}:C${row}`);
+    const notesCell = ws.getCell(`A${row}`);
+    notesCell.value = account.notes;
+    notesCell.font = font();
+    notesCell.alignment = { horizontal: "left", vertical: "top", wrapText: true, indent: 1 };
+    notesCell.border = thinAll();
+    const lineCount = Math.max(2, Math.ceil(account.notes.length / 80));
+    ws.getRow(row).height = Math.min(140, lineCount * 18);
+    row++;
+  }
+
+  // -----------------------------------------------------------------------
+  // Footer line — small print mentioning the system.
+  // -----------------------------------------------------------------------
+  row++;
+  ws.mergeCells(`A${row}:C${row}`);
+  const footer = ws.getCell(`A${row}`);
+  footer.value = "HSI Sales AI Platform • HPT Vietnam";
+  footer.font = font({ size: 9, italic: true, color: { argb: TEXT_MUTED } });
+  footer.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(row).height = 18;
+
+  // Page setup so print preview matches the look-and-feel.
   ws.pageSetup = {
     orientation: "portrait",
     paperSize: 9, // A4
