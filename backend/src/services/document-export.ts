@@ -9,6 +9,8 @@
  * Both renderers return a Promise<Buffer> that a route handler can stream back.
  */
 import { createRequire } from "module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   Document,
   Packer,
@@ -53,12 +55,31 @@ const URLResolver = (require_("pdfmake/js/URLResolver") as {
 // Roboto ships with pdfmake and supports Vietnamese diacritics. Path resolved via
 // require so bundlers + node-modules layout both work.
 const robotoPath = require_.resolve("pdfmake/fonts/Roboto.js").replace(/Roboto\.js$/, "Roboto/");
+// Custom fonts bundled in backend/src/assets: Inter for body (matches the
+// design's UI font) and Instrument Serif for the display title. Resolved
+// from this source file so they ship with the deployment.
+const ownDirPath = path.dirname(fileURLToPath(import.meta.url));
+const assetsBasePath = path.join(ownDirPath, "..", "assets") + path.sep;
 const FONTS = {
   Roboto: {
     normal: robotoPath + "Roboto-Regular.ttf",
     bold: robotoPath + "Roboto-Medium.ttf",
     italics: robotoPath + "Roboto-Italic.ttf",
     bolditalics: robotoPath + "Roboto-MediumItalic.ttf",
+  },
+  Inter: {
+    normal: assetsBasePath + "Inter-Regular.ttf",
+    bold: assetsBasePath + "Inter-Bold.ttf",
+    italics: assetsBasePath + "Inter-Italic.ttf",
+    bolditalics: assetsBasePath + "Inter-BoldItalic.ttf",
+  },
+  // Instrument Serif only ships Regular + Italic. Reuse them for bold
+  // variants — pdfmake will synthesize weight when requested.
+  InstrumentSerif: {
+    normal: assetsBasePath + "InstrumentSerif-Regular.ttf",
+    bold: assetsBasePath + "InstrumentSerif-Regular.ttf",
+    italics: assetsBasePath + "InstrumentSerif-Italic.ttf",
+    bolditalics: assetsBasePath + "InstrumentSerif-Italic.ttf",
   },
 };
 const urlResolver = new URLResolver(virtualFs);
@@ -378,31 +399,37 @@ export async function renderQuotationPDF(
         width: "*",
         stack: [
           {
+            // Small-caps subtitle, 11pt with wide tracking — matches the
+            // template's "QUOTATION • XÁC NHẬN SỐ LƯỢNG" line.
             text: isFull ? "QUOTATION  •  BÁO GIÁ" : "QUOTATION  •  XÁC NHẬN SỐ LƯỢNG",
-            fontSize: 9,
+            fontSize: 11,
             bold: true,
             color: INK_MUTE,
-            characterSpacing: 2,
+            characterSpacing: 3.5,
           },
           {
+            // Display title: Instrument Serif at 52pt to match the design.
+            // The font is bundled in backend/src/assets and registered with
+            // pdfmake at module init.
             text: "Báo giá",
-            fontSize: 40,
-            bold: true,
+            font: "InstrumentSerif",
+            fontSize: 52,
             color: INK,
-            margin: [0, 4, 0, 0],
+            margin: [0, 8, 0, 0],
+            lineHeight: 0.95,
           },
         ],
       },
       {
         width: "auto",
         stack: [
-          { text: "Mã báo giá", fontSize: 9, color: INK_SOFT, alignment: "right" },
+          { text: "Mã báo giá", fontSize: 11, color: INK_SOFT, alignment: "right" },
           {
             text: quotation.number,
             fontSize: 17,
             bold: true,
             color: HPT_RED,
-            characterSpacing: 1,
+            characterSpacing: 1.2,
             alignment: "right",
             margin: [0, 4, 0, 0],
           },
@@ -410,7 +437,7 @@ export async function renderQuotationPDF(
       },
     ],
     columnGap: 20,
-    margin: [0, 0, 0, 18] as [number, number, number, number],
+    margin: [0, 0, 0, 22] as [number, number, number, number],
   };
 
   // -----------------------------------------------------------------------
@@ -481,13 +508,13 @@ export async function renderQuotationPDF(
         stack: [
           {
             text: [
-              { text: "◆  ", color: HPT_RED, fontSize: 9 },
+              { text: "◆  ", color: HPT_RED, fontSize: 10 },
               {
                 text: isFull ? "DANH MỤC BÁO GIÁ" : "DANH MỤC XÁC NHẬN SỐ LƯỢNG",
-                fontSize: 10,
+                fontSize: 11,
                 bold: true,
                 color: INK,
-                characterSpacing: 2,
+                characterSpacing: 3,
               },
             ],
           },
@@ -498,13 +525,13 @@ export async function renderQuotationPDF(
         text: isFull
           ? "Báo giá đầy đủ — đã bao gồm đơn giá và VAT"
           : "Báo giá xác nhận số lượng — chưa bao gồm đơn giá",
-        fontSize: 9,
+        fontSize: 10,
         color: INK_MUTE,
         alignment: "right",
         margin: [0, 1, 0, 0],
       },
     ],
-    margin: [0, 0, 0, 8] as [number, number, number, number],
+    margin: [0, 0, 0, 10] as [number, number, number, number],
   };
 
   // -----------------------------------------------------------------------
@@ -755,24 +782,26 @@ export async function renderQuotationPDF(
 
   const doc: DocDefinition = {
     pageSize: "A4",
-    // pdfmake margins are in points. 1mm ≈ 2.83pt.
-    // Top 22mm ≈ 62pt, sides 20mm ≈ 57pt, bottom 18mm ≈ 51pt.
     pageMargins: [40, 50, 40, 60],
-    defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.3, color: INK },
+    // Body font: Inter — matches the design source. lineHeight + base size
+    // tuned to template (10pt body = .98×10 ≈ matches Inter at 10).
+    defaultStyle: { font: "Inter", fontSize: 10, lineHeight: 1.3, color: INK },
     content,
     styles: {
+      // Sizes mirror the Tailwind/CSS values from Bao Gia.html so the
+      // rendered PDF reads at the same visual hierarchy as the template.
       logoFallback: { fontSize: 28, bold: true, color: HPT_RED },
-      brandName: { fontSize: 12, bold: true, color: INK, characterSpacing: 0.5 },
-      brandTag: { fontSize: 9, color: INK_MUTE, characterSpacing: 2 },
-      metaLabel: { fontSize: 8, bold: true, color: INK_MUTE, characterSpacing: 2 },
-      metaValue: { fontSize: 12, color: INK, bold: false },
-      metaValueMuted: { fontSize: 12, color: INK_MUTE, italics: true },
-      contactLabel: { fontSize: 8, bold: true, color: INK_MUTE, characterSpacing: 2 },
-      th: { bold: true, fontSize: 9, color: "#ffffff", characterSpacing: 1.5 },
-      totalLabel: { fontSize: 10, color: INK_SOFT },
-      totalValue: { fontSize: 10, color: INK, bold: false },
-      totalLabelBig: { fontSize: 11, bold: true, color: HPT_RED_DEEP, characterSpacing: 1 },
-      totalValueBig: { fontSize: 14, bold: true, color: HPT_RED_DEEP },
+      brandName: { fontSize: 13, bold: true, color: INK, characterSpacing: 0.5 },
+      brandTag: { fontSize: 10, color: INK_MUTE, characterSpacing: 2 },
+      metaLabel: { fontSize: 9, bold: true, color: INK_MUTE, characterSpacing: 2 },
+      metaValue: { fontSize: 13.5, color: INK, bold: false },
+      metaValueMuted: { fontSize: 13.5, color: INK_MUTE, italics: true },
+      contactLabel: { fontSize: 9, bold: true, color: INK_MUTE, characterSpacing: 2 },
+      th: { bold: true, fontSize: 10, color: "#ffffff", characterSpacing: 1.5 },
+      totalLabel: { fontSize: 11, color: INK_SOFT },
+      totalValue: { fontSize: 11, color: INK, bold: false },
+      totalLabelBig: { fontSize: 12, bold: true, color: HPT_RED_DEEP, characterSpacing: 1 },
+      totalValueBig: { fontSize: 15, bold: true, color: HPT_RED_DEEP },
     },
     footer: (currentPage: number, pageCount: number) => ({
       margin: [40, 16, 40, 0] as [number, number, number, number],
@@ -1043,33 +1072,21 @@ export async function renderQuotationDOCX(
 
 import ExcelJS from "exceljs";
 import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { prisma } from "../lib/prisma.js";
 
-const __filenameXlsx = fileURLToPath(import.meta.url);
-const __dirnameXlsx = path.dirname(__filenameXlsx);
-
 // HPT logo lives next to the compiled sources. Read once at module load —
-// it's only 5KB and never changes.
+// JPEG is 5KB (used by XLSX), PNG is hi-res (used by PDF).
 const HPT_LOGO_BUFFER: Buffer = (() => {
-  const p = path.join(__dirnameXlsx, "..", "assets", "hpt-logo.jpeg");
   try {
-    return fs.readFileSync(p);
+    return fs.readFileSync(path.join(assetsBasePath, "hpt-logo.jpeg"));
   } catch {
-    // Don't crash the whole service if the asset is missing in some
-    // deployment — the XLSX renderer is the only consumer, and it can
-    // render without the logo just fine.
     return Buffer.alloc(0);
   }
 })();
 
-// Hi-res PNG version of the logo — used by the PDF renderer where the
-// extra resolution matters when the file is zoomed.
 const HPT_LOGO_PNG_BUFFER: Buffer = (() => {
-  const p = path.join(__dirnameXlsx, "..", "assets", "hpt-logo.png");
   try {
-    return fs.readFileSync(p);
+    return fs.readFileSync(path.join(assetsBasePath, "hpt-logo.png"));
   } catch {
     return Buffer.alloc(0);
   }
