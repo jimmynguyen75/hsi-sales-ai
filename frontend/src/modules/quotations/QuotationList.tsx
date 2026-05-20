@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { Plus, FileSpreadsheet, Package } from "lucide-react";
-import { api } from "@/lib/api";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus, FileSpreadsheet, Package, Upload } from "lucide-react";
+import { api, apiUpload } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 import type { Quotation } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
@@ -19,10 +20,49 @@ const STATUS_COLOR: Record<string, string> = {
 
 export function QuotationList() {
   const [open, setOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const nav = useNavigate();
+  const toast = useToast();
   const { data: quotations, isLoading, refetch } = useQuery({
     queryKey: ["quotations"],
     queryFn: () => api.get<Quotation[]>("/quotations"),
   });
+
+  async function handleImport(file: File) {
+    setImporting(true);
+    try {
+      const res = await apiUpload<{
+        quotation: Quotation;
+        warnings: string[];
+      }>("/quotations/import", file);
+      if (res.warnings.length > 0) {
+        // Surface every warning but don't block — quotation was still saved.
+        toast.warning(
+          `Đã tạo ${res.quotation.number}, có ${res.warnings.length} cảnh báo`,
+          res.warnings.join(" • "),
+        );
+      } else {
+        toast.success(
+          `Đã tạo ${res.quotation.number} từ "${file.name}"`,
+          `${res.quotation.items.length} dòng • tổng ${res.quotation.total.toLocaleString("vi-VN")} ₫`,
+        );
+      }
+      // Refresh list and jump straight into the new quotation so the rep
+      // can review the parsed result.
+      refetch();
+      nav(`/quotations/${res.quotation.id}`);
+    } catch (err) {
+      toast.error(
+        "Import thất bại",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setImporting(false);
+      // Reset the input so picking the same file twice still fires onChange.
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -40,6 +80,28 @@ export function QuotationList() {
               Catalog
             </Button>
           </Link>
+          {/* Hidden file input — Button triggers the picker. Accepts .xlsx
+              (and .xls for tolerance, parser handles both via exceljs). */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleImport(f);
+            }}
+          />
+          <Button
+            variant="outline"
+            loading={importing}
+            disabled={importing}
+            title="Import quotation từ file Excel — phần mềm tự điền title, customer, items"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="h-4 w-4" />
+            Import Excel
+          </Button>
           <Button onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" />
             Quotation mới

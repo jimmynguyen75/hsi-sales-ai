@@ -1,7 +1,8 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { ok } from "../lib/response.js";
+import { ok, fail } from "../lib/response.js";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { suggestBOM } from "../services/quotation-ai.js";
 import {
@@ -9,10 +10,18 @@ import {
   renderQuotationDOCX,
   renderQuotationXLSX,
 } from "../services/document-export.js";
+import { parseQuotationXLSX } from "../services/quotation-import.js";
 import { logAudit, diffSummary } from "../services/audit.js";
 import type { Prisma } from "@prisma/client";
 
 export const quotationsRouter = Router();
+
+// 10 MB ceiling — quotation files are tiny but template XLSX with images
+// can push past the CSV 5 MB ceiling we use elsewhere.
+const xlsxUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 // GET /api/quotations/:id/export.pdf
 quotationsRouter.get("/:id/export.pdf", async (req, res, next) => {
@@ -256,6 +265,110 @@ quotationsRouter.post("/", async (req, res, next) => {
       summary: `Tạo quotation ${created.number}: ${created.title}`,
     });
     ok(res, created);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/quotations/import — upload an Excel file and auto-create a
+// quotation from its contents. The parser tolerates both Vietnamese and
+// English headers, and accepts our own export template as well as
+// partner-supplied formats.
+//
+// Optional form fields:
+//   accountId: link to an existing account directly (skips name matching)
+//   dealId:    attach to an existing deal
+quotationsRouter.post("/import", xlsxUpload.single("file"), async (req, res, next) => {
+  try {
+    const userId = (req as AuthedRequest).userId;
+    const file = (req as Express.Request & { file?: Express.Multer.File }).file;
+    if (!file) return fail(res, 400, "Thiếu file upload (field 'file').");
+
+    const parsed = await parseQuotationXLSX(file.buffer);
+    if (parsed.items.length === 0) {
+      return fail(
+        res,
+        422,
+        parsed.warnings.join(" ") ||
+          "Không trích xuất được line item nào từ file Excel.",
+      );
+    }
+
+    const bodyAccountId =
+      typeof req.body?.accountId === "string" && req.body.accountId
+        ? String(req.body.accountId)
+        : null;
+    const bodyDealId =
+      typeof req.body?.dealId === "string" && req.body.dealId
+        ? String(req.body.dealId)
+        : null;
+
+    // Resolve the target account: explicit accountId wins; otherwise try to
+    // match the customer name parsed from the file (case-insensitive, against
+    // accounts this user can see).
+    let accountId: string | null = bodyAccountId;
+    if (!accountId && parsed.customerName) {
+      const candidates = await prisma.account.findMany({
+        where: {
+          ownerId: userId, // sales sees own; admin can pass accountId explicitly
+          companyName: { contains: parsed.customerName, mode: "insensitive" },
+        },
+        take: 2,
+      });
+      if (candidates.length === 1) accountId = candidates[0].id;
+      else if (candidates.length > 1) {
+        parsed.warnings.push(
+          `Nhiều account khớp "${parsed.customerName}". Hãy chọn account rồi import lại.`,
+        );
+      } else {
+        parsed.warnings.push(
+          `Không tìm thấy account "${parsed.customerName}". Quotation sẽ tạo không gắn account.`,
+        );
+      }
+    }
+
+    // Map parsed items into the canonical LineItem shape, calling recompute
+    // so subtotal/total/lineTotal are computed by the same code path the
+    // editor uses.
+    const rawItems: LineItem[] = parsed.items.map((it) => ({
+      id: lid(),
+      productId: null,
+      name: it.name,
+      description: it.description,
+      vendor: it.vendor,
+      qty: it.qty,
+      unitPrice: Math.round(it.unitPrice),
+      margin: 0,
+      vatPct: it.vatPct ?? 10,
+      discount: 0,
+      unit: "unit",
+      lineTotal: 0,
+    }));
+    const { items, subtotal, total } = recompute(rawItems, 0, 0);
+
+    const number = await nextNumber();
+    const created = await prisma.quotation.create({
+      data: {
+        number,
+        title: parsed.title || file.originalname.replace(/\.[^.]+$/, ""),
+        accountId,
+        dealId: bodyDealId,
+        currency: "VND",
+        validUntil: parsed.validUntil,
+        items: items as unknown as Prisma.InputJsonValue,
+        subtotal,
+        total,
+        ownerId: userId,
+      },
+    });
+    await logAudit(req, {
+      action: "create",
+      entity: "quotation",
+      entityId: created.id,
+      summary: `Import quotation ${created.number} từ "${file.originalname}": ${items.length} items, tổng ${total.toLocaleString("vi-VN")}`,
+    });
+
+    ok(res, { quotation: created, warnings: parsed.warnings });
   } catch (e) {
     next(e);
   }
