@@ -214,20 +214,38 @@ interface QuotationItem {
 }
 
 /**
- * Quotation PDF export.
+ * Quotation PDF export — HPT red theme.
+ *
+ * Layout follows the design hand-off (bg/project/Bao Gia.html):
+ * - Top red+gray accent bar
+ * - Header: logo + brand text on the left, company address on the right
+ * - Title block: big "Báo giá" + subtitle + quote number in red
+ * - Meta row: 2 cells (Kính gửi + Ngày lập) on warm cream
+ * - Section header with red diamond marker
+ * - Table with red header and minimal borders
+ * - "Người báo giá" contact block, red left border
+ * - Page footer with brand + page number
  *
  * mode:
- *   "full"     — internal/full version with prices, VAT, totals, signature.
- *                What HPT sends to the customer after pricing is final.
- *   "customer" — customer-review version. Hides every price column and the
- *                totals block; only shows item descriptions + qty so the
- *                customer signs off on what they're buying before HPT
- *                quotes a final price ("chốt số lượng").
- *
- * Both modes share the branded header (HPT logo + company info), the
- * customer-info row, the T&C block, and the signature footer.
+ *   "full"     — adds Đơn giá / VAT% / Thành tiền columns + totals block.
+ *                Use when pricing is final.
+ *   "customer" — qty-only "xác nhận số lượng" view. No prices, no totals.
+ *                Customer confirms BOM before HPT commits a price.
  */
 export type QuotationPDFMode = "full" | "customer";
+
+// HPT brand colors lifted from the design's oklch values.
+const HPT_RED = "#8B1538";
+const HPT_RED_DEEP = "#6B1029";
+const HPT_RED_SOFT = "#F5E0E5";
+const PAPER = "#FCFAF7";
+const PAPER_WARM = "#F6EFE6";
+const INK = "#2B2222";
+const INK_SOFT = "#5A504B";
+const INK_MUTE = "#7F7670";
+const LINE = "#DBD6D2";
+const LINE_SOFT = "#EBE7E3";
+const GRAY = "#94908A";
 
 export async function renderQuotationPDF(
   quotation: Quotation,
@@ -237,122 +255,260 @@ export async function renderQuotationPDF(
   const items = (quotation.items ?? []) as unknown as QuotationItem[];
   const isFull = mode === "full";
 
-  // Pick a representative VAT rate for the T&C wording. Same logic as the
-  // XLSX renderer — single rate when all rows agree, mixed otherwise.
-  const vatRates = items.map((it) => it.vatPct ?? quotation.tax ?? 10);
-  const uniqueVat = Array.from(new Set(vatRates));
-  const headlineVat = uniqueVat.length === 1 ? uniqueVat[0] : (quotation.tax ?? 10);
-  const mixedVat = uniqueVat.length > 1;
+  // Owner (Account Manager) for the "Người báo giá" block. Loaded just
+  // for the PDF since the Quotation row only carries an ownerId.
+  const owner = await prisma.user.findUnique({
+    where: { id: quotation.ownerId },
+    select: { name: true, email: true, role: true },
+  });
 
-  // HPT logo as a data URI — pdfmake handles base64 images via this form.
+  // HPT logo (PNG, high res) embedded as data URI for pdfmake.
   const logoDataURI =
-    HPT_LOGO_BUFFER.length > 0
-      ? `data:image/jpeg;base64,${HPT_LOGO_BUFFER.toString("base64")}`
-      : null;
+    HPT_LOGO_PNG_BUFFER.length > 0
+      ? `data:image/png;base64,${HPT_LOGO_PNG_BUFFER.toString("base64")}`
+      : HPT_LOGO_BUFFER.length > 0
+        ? `data:image/jpeg;base64,${HPT_LOGO_BUFFER.toString("base64")}`
+        : null;
 
   // -----------------------------------------------------------------------
-  // Header band: logo on the left, HPT contact info on the right.
+  // Top accent bar — solid red on the left 72%, gray on the right 28%.
+  // Spans the full content width (A4 minus side margins = 170mm ≈ 482pt).
+  // -----------------------------------------------------------------------
+  const accentBar = {
+    canvas: [
+      // Red portion: 0 → 72% of 515pt (width = A4 - margins) ≈ 371pt
+      {
+        type: "rect" as const,
+        x: 0,
+        y: 0,
+        w: 371,
+        h: 4,
+        color: HPT_RED,
+      },
+      // Gray portion: 371 → 515
+      {
+        type: "rect" as const,
+        x: 371,
+        y: 0,
+        w: 144,
+        h: 4,
+        color: GRAY,
+      },
+    ],
+    margin: [0, -10, 0, 10] as [number, number, number, number],
+  };
+
+  // -----------------------------------------------------------------------
+  // Header band: logo + brand text on the left, address on the right.
   // -----------------------------------------------------------------------
   const headerBand = {
     columns: [
-      logoDataURI
-        ? { image: logoDataURI, width: 110, margin: [0, 0, 0, 0] }
-        : { text: "HPT", style: "logoFallback", width: 110 },
       {
-        stack: [
-          { text: "HPT VIETNAM CORPORATION", style: "brandName" },
-          { text: "HPT SYSTEM INTEGRATION", style: "brandSubname" },
+        width: "*",
+        columns: [
+          logoDataURI
+            ? { image: logoDataURI, width: 74, alignment: "left" }
+            : { text: "HPT", style: "logoFallback", width: 74 },
           {
-            text: "Office: Lot E2a-3, D1 St., Saigon High Tech Park, Tang Nhon Phu Ward, HCMC, Vietnam",
-            style: "brandAddress",
-            margin: [0, 2, 0, 0],
+            // Thin divider between logo and brand text.
+            canvas: [
+              {
+                type: "rect" as const,
+                x: 0,
+                y: 4,
+                w: 1,
+                h: 28,
+                color: LINE,
+              },
+            ],
+            width: 12,
           },
           {
-            text: "Tel: + (84 28) 54 123 400  •  Fax: + (84 28) 54 108 801  •  Website: www.hpt.vn",
-            style: "brandAddress",
+            width: "*",
+            stack: [
+              { text: "HPT VIETNAM CORPORATION", style: "brandName" },
+              { text: "HPT SYSTEM INTEGRATION", style: "brandTag", margin: [0, 2, 0, 0] },
+            ],
           },
         ],
-        alignment: "right",
+        columnGap: 0,
+      },
+      {
+        width: "auto",
+        stack: [
+          { text: "Văn phòng", bold: true, fontSize: 8.5, color: INK, alignment: "right" },
+          {
+            text: "Lot E2a-3, D1 Street, Saigon High Tech Park,\nTang Nhon Phu Ward, HCMC, Vietnam",
+            fontSize: 8.5,
+            color: INK_SOFT,
+            alignment: "right",
+            margin: [0, 1, 0, 0],
+          },
+          {
+            text: [
+              { text: "T. ", bold: true, color: INK },
+              { text: "+(84 28) 54 123 400 ", color: INK_SOFT },
+              { text: "/ ", color: LINE },
+              { text: "F. ", bold: true, color: INK },
+              { text: "+(84 28) 54 108 801", color: INK_SOFT },
+            ],
+            fontSize: 8.5,
+            alignment: "right",
+            margin: [0, 1, 0, 0],
+          },
+          { text: "www.hpt.vn", bold: true, fontSize: 8.5, color: INK, alignment: "right", margin: [0, 1, 0, 0] },
+        ],
       },
     ],
-    columnGap: 10,
-    margin: [0, 0, 0, 6],
+    columnGap: 20,
   };
 
-  // Thin navy divider under the header band.
-  const navyDivider = {
-    canvas: [{ type: "line", x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1.2, lineColor: "#1E3A8A" }],
-    margin: [0, 0, 0, 12],
+  // Thin divider line under the header.
+  const headerDivider = {
+    canvas: [{ type: "line" as const, x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: LINE }],
+    margin: [0, 14, 0, 18] as [number, number, number, number],
   };
 
   // -----------------------------------------------------------------------
-  // Title block — centered "BÁO GIÁ" + número + (if customer mode) sub
-  // tag making the doc role obvious.
+  // Title block — "BÁO GIÁ" big on the left, quote number red on the right.
   // -----------------------------------------------------------------------
   const titleBlock = {
-    stack: [
-      {
-        text: isFull ? "BÁO GIÁ" : "BÁO GIÁ — XÁC NHẬN SỐ LƯỢNG",
-        alignment: "center",
-        style: "docTitle",
-      },
-      {
-        text: `Số: ${quotation.number}`,
-        alignment: "center",
-        style: "subtitle",
-      },
-    ],
-    margin: [0, 0, 0, 14],
-  };
-
-  // -----------------------------------------------------------------------
-  // Customer info row — 2 columns. Left: KHÁCH HÀNG. Right: dates.
-  // -----------------------------------------------------------------------
-  const customerInfo = {
     columns: [
       {
         width: "*",
         stack: [
-          { text: "KHÁCH HÀNG", style: "label" },
-          { text: account?.companyName ?? "—", style: "value", bold: true, margin: [0, 2, 0, 0] },
-          account?.address ? { text: account.address, style: "muted" } : null,
-          account?.industry ? { text: account.industry, style: "muted" } : null,
-        ].filter(Boolean),
+          {
+            text: isFull ? "QUOTATION  •  BÁO GIÁ" : "QUOTATION  •  XÁC NHẬN SỐ LƯỢNG",
+            fontSize: 9,
+            bold: true,
+            color: INK_MUTE,
+            characterSpacing: 2,
+          },
+          {
+            text: "Báo giá",
+            fontSize: 40,
+            bold: true,
+            color: INK,
+            margin: [0, 4, 0, 0],
+          },
+        ],
       },
       {
-        width: 180,
+        width: "auto",
         stack: [
-          { text: "NGÀY LẬP", style: "label", alignment: "right" },
-          { text: vndDate(quotation.createdAt), style: "value", alignment: "right", margin: [0, 2, 0, 6] },
-          quotation.validUntil
-            ? { text: "HIỆU LỰC ĐẾN", style: "label", alignment: "right" }
-            : null,
-          quotation.validUntil
-            ? { text: vndDate(quotation.validUntil), style: "value", alignment: "right", margin: [0, 2, 0, 0] }
-            : null,
-        ].filter(Boolean),
-      },
-    ],
-    margin: [0, 0, 0, 8],
-  };
-
-  const titleRow = {
-    columns: [
-      {
-        width: "*",
-        stack: [
-          { text: "NỘI DUNG BÁO GIÁ", style: "label" },
-          { text: quotation.title, style: "value", bold: true, margin: [0, 2, 0, 0] },
+          { text: "Mã báo giá", fontSize: 9, color: INK_SOFT, alignment: "right" },
+          {
+            text: quotation.number,
+            fontSize: 17,
+            bold: true,
+            color: HPT_RED,
+            characterSpacing: 1,
+            alignment: "right",
+            margin: [0, 4, 0, 0],
+          },
         ],
       },
     ],
-    margin: [0, 0, 0, 12],
+    columnGap: 20,
+    margin: [0, 0, 0, 18] as [number, number, number, number],
   };
 
   // -----------------------------------------------------------------------
-  // Item table — column set depends on mode.
-  //   full:     STT / Sản phẩm / ĐVT / SL / Đơn giá / VAT% / Thành tiền
-  //   customer: STT / Sản phẩm / ĐVT / SL
+  // Meta row — warm cream background, 2 cells (Kính gửi, Ngày lập). For
+  // full mode add a 3rd cell with "Hiệu lực đến".
+  // -----------------------------------------------------------------------
+  const metaCells = [
+    [
+      {
+        stack: [
+          { text: "KÍNH GỬI KHÁCH HÀNG", style: "metaLabel" },
+          {
+            text: account?.companyName || "— Chưa cập nhật —",
+            style: account?.companyName ? "metaValue" : "metaValueMuted",
+            margin: [0, 4, 0, 0],
+          },
+        ],
+        margin: [14, 12, 14, 12],
+      },
+      {
+        stack: [
+          { text: "NGÀY LẬP", style: "metaLabel" },
+          {
+            text: vndDate(quotation.createdAt),
+            style: "metaValue",
+            margin: [0, 4, 0, 0],
+          },
+        ],
+        margin: [14, 12, 14, 12],
+      },
+    ],
+  ];
+  if (isFull && quotation.validUntil) {
+    metaCells[0].push({
+      stack: [
+        { text: "HIỆU LỰC ĐẾN", style: "metaLabel" },
+        {
+          text: vndDate(quotation.validUntil),
+          style: "metaValue",
+          margin: [0, 4, 0, 0],
+        },
+      ],
+      margin: [14, 12, 14, 12],
+    });
+  }
+  const metaRow = {
+    table: {
+      widths: isFull && quotation.validUntil ? ["*", "*", "*"] : ["*", "*"],
+      body: metaCells,
+    },
+    layout: {
+      hLineWidth: () => 0,
+      vLineColor: () => LINE,
+      vLineWidth: (i: number, node: { table: { widths?: unknown[] } }) =>
+        i === 0 || i === (node.table.widths?.length ?? 0) ? 0 : 1,
+      fillColor: () => PAPER_WARM,
+    },
+    margin: [0, 0, 0, 22] as [number, number, number, number],
+  };
+
+  // -----------------------------------------------------------------------
+  // Section header — small uppercase + red diamond marker + right note.
+  // -----------------------------------------------------------------------
+  const sectionHead = {
+    columns: [
+      {
+        width: "*",
+        stack: [
+          {
+            text: [
+              { text: "◆  ", color: HPT_RED, fontSize: 9 },
+              {
+                text: isFull ? "DANH MỤC BÁO GIÁ" : "DANH MỤC XÁC NHẬN SỐ LƯỢNG",
+                fontSize: 10,
+                bold: true,
+                color: INK,
+                characterSpacing: 2,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        width: "auto",
+        text: isFull
+          ? "Báo giá đầy đủ — đã bao gồm đơn giá và VAT"
+          : "Báo giá xác nhận số lượng — chưa bao gồm đơn giá",
+        fontSize: 9,
+        color: INK_MUTE,
+        alignment: "right",
+        margin: [0, 1, 0, 0],
+      },
+    ],
+    margin: [0, 0, 0, 8] as [number, number, number, number],
+  };
+
+  // -----------------------------------------------------------------------
+  // Item table.
   // -----------------------------------------------------------------------
   const tableBody: unknown[][] = [];
   if (isFull) {
@@ -360,9 +516,9 @@ export async function renderQuotationPDF(
       { text: "STT", style: "th", alignment: "center" },
       { text: "Sản phẩm / Mô tả", style: "th" },
       { text: "ĐVT", style: "th", alignment: "center" },
-      { text: "SL", style: "th", alignment: "center" },
+      { text: "Số lượng", style: "th", alignment: "center" },
       { text: "Đơn giá (VNĐ)", style: "th", alignment: "right" },
-      { text: "VAT %", style: "th", alignment: "right" },
+      { text: "VAT %", style: "th", alignment: "center" },
       { text: "Thành tiền (VNĐ)", style: "th", alignment: "right" },
     ]);
   } else {
@@ -370,59 +526,67 @@ export async function renderQuotationPDF(
       { text: "STT", style: "th", alignment: "center" },
       { text: "Sản phẩm / Mô tả", style: "th" },
       { text: "ĐVT", style: "th", alignment: "center" },
-      { text: "SL", style: "th", alignment: "center" },
+      { text: "Số lượng", style: "th", alignment: "center" },
     ]);
   }
 
   items.forEach((it, i) => {
+    const stt = String(i + 1).padStart(2, "0");
     const productCell = {
       stack: [
-        { text: it.name, bold: true, fontSize: 10 },
-        it.vendor ? { text: it.vendor, fontSize: 8, color: "#64748b" } : null,
+        { text: it.name, bold: true, fontSize: 12, color: INK },
+        it.vendor ? { text: it.vendor, fontSize: 8.5, color: INK_MUTE, margin: [0, 1, 0, 0] } : null,
         it.description
-          ? { text: it.description, fontSize: 9, color: "#475569", margin: [0, 2, 0, 0] }
+          ? { text: it.description, fontSize: 10, color: INK_SOFT, margin: [0, 3, 0, 0], lineHeight: 1.4 }
           : null,
       ].filter(Boolean),
     };
     if (isFull) {
       tableBody.push([
-        { text: String(i + 1), alignment: "center" },
+        { text: stt, alignment: "center", fontSize: 10.5, color: INK_MUTE },
         productCell,
-        { text: it.unit ?? "unit", alignment: "center", fontSize: 9 },
-        { text: String(it.qty), alignment: "center", bold: true },
-        { text: vndMoney(it.unitPrice, quotation.currency), alignment: "right" },
-        { text: `${it.vatPct ?? 10}%`, alignment: "right", fontSize: 9 },
-        { text: vndMoney(it.lineTotal, quotation.currency), alignment: "right", bold: true },
+        { text: it.unit ?? "unit", alignment: "center", fontSize: 10, color: INK_SOFT },
+        { text: String(it.qty), alignment: "center", bold: true, fontSize: 12, color: INK },
+        { text: vndMoney(it.unitPrice, quotation.currency), alignment: "right", fontSize: 10, color: INK },
+        { text: `${it.vatPct ?? 10}%`, alignment: "center", fontSize: 10, color: INK_SOFT },
+        { text: vndMoney(it.lineTotal, quotation.currency), alignment: "right", bold: true, fontSize: 11, color: INK },
       ]);
     } else {
       tableBody.push([
-        { text: String(i + 1), alignment: "center" },
+        { text: stt, alignment: "center", fontSize: 10.5, color: INK_MUTE },
         productCell,
-        { text: it.unit ?? "unit", alignment: "center", fontSize: 9 },
-        { text: String(it.qty), alignment: "center", bold: true, fontSize: 12 },
+        { text: it.unit ?? "unit", alignment: "center", fontSize: 10, color: INK_SOFT },
+        { text: String(it.qty), alignment: "center", bold: true, fontSize: 13, color: INK },
       ]);
     }
   });
 
   const itemTable = {
     table: {
-      widths: isFull ? [22, "*", 36, 28, 70, 36, 80] : [30, "*", 60, 60],
+      widths: isFull ? [28, "*", 36, 44, 70, 36, 80] : [40, "*", 60, 70],
       headerRows: 1,
       body: tableBody,
     },
     layout: {
-      fillColor: (row: number) =>
-        row === 0 ? "#1E3A8A" : row % 2 === 0 ? "#F8FAFC" : null,
-      hLineColor: () => "#CBD5E1",
-      vLineColor: () => "#CBD5E1",
-      hLineWidth: (i: number, node: { table: { body: unknown[] } }) =>
-        i === 0 || i === node.table.body.length ? 1.2 : 0.5,
-      vLineWidth: () => 0.5,
+      fillColor: (row: number) => (row === 0 ? HPT_RED : null),
+      hLineColor: (i: number) => (i === 0 || i === 1 ? "transparent" : LINE_SOFT),
+      vLineColor: () => "transparent",
+      hLineWidth: (i: number, node: { table: { body: unknown[] } }) => {
+        if (i === 0) return 0;
+        if (i === node.table.body.length) return 1;
+        return 0.5;
+      },
+      vLineWidth: () => 0,
+      paddingTop: (i: number) => (i === 0 ? 12 : 14),
+      paddingBottom: (i: number) => (i === 0 ? 12 : 14),
+      paddingLeft: () => 12,
+      paddingRight: () => 12,
     },
+    margin: [0, 0, 0, 0] as [number, number, number, number],
   };
 
   // -----------------------------------------------------------------------
-  // Totals block — full only.
+  // Totals + in-words — full mode only.
   // -----------------------------------------------------------------------
   const subtotal = quotation.subtotal;
   const totalVAT = Math.max(0, quotation.total - quotation.subtotal);
@@ -433,130 +597,215 @@ export async function renderQuotationPDF(
           { width: "*", text: "" },
           {
             width: 260,
-            margin: [0, 14, 0, 0],
+            margin: [0, 14, 0, 0] as [number, number, number, number],
             table: {
               widths: ["*", 110],
               body: [
                 [
                   { text: "Tổng chưa VAT (VNĐ)", style: "totalLabel" },
-                  {
-                    text: vndMoney(subtotal, quotation.currency),
-                    style: "totalValue",
-                    alignment: "right",
-                  },
+                  { text: vndMoney(subtotal, quotation.currency), style: "totalValue", alignment: "right" },
                 ],
                 [
                   { text: "VAT (VNĐ)", style: "totalLabel" },
-                  {
-                    text: vndMoney(totalVAT, quotation.currency),
-                    style: "totalValue",
-                    alignment: "right",
-                  },
+                  { text: vndMoney(totalVAT, quotation.currency), style: "totalValue", alignment: "right" },
                 ],
                 [
                   { text: "TỔNG CỘNG (VNĐ)", style: "totalLabelBig" },
-                  {
-                    text: vndMoney(grandTotal, quotation.currency),
-                    style: "totalValueBig",
-                    alignment: "right",
-                  },
+                  { text: vndMoney(grandTotal, quotation.currency), style: "totalValueBig", alignment: "right" },
                 ],
               ],
             },
             layout: {
               hLineColor: (i: number, node: { table: { body: unknown[] } }) =>
-                i === node.table.body.length - 1 ? "#1E3A8A" : "#CBD5E1",
-              vLineColor: () => "#CBD5E1",
-              hLineWidth: (i: number, node: { table: { body: unknown[] } }) =>
-                i === 0 ? 0 : i === node.table.body.length ? 1.5 : 0.5,
+                i === node.table.body.length - 1 ? HPT_RED : LINE_SOFT,
+              vLineColor: () => "transparent",
+              hLineWidth: (i: number, node: { table: { body: unknown[] } }) => {
+                if (i === 0) return 0;
+                if (i === node.table.body.length) return 1.5;
+                return 0.5;
+              },
               vLineWidth: () => 0,
+              paddingTop: () => 8,
+              paddingBottom: () => 8,
             },
           },
         ],
       }
     : null;
 
-  // -----------------------------------------------------------------------
-  // In-words line — full only.
-  // -----------------------------------------------------------------------
-  const inWords = isFull
+  const inWordsBlock = isFull
     ? {
         text: `(Bằng chữ: ${vndInWords(grandTotal)})`,
         italics: true,
         fontSize: 10,
-        color: "#1E3A8A",
-        margin: [0, 8, 0, 0],
+        color: HPT_RED_DEEP,
+        margin: [0, 10, 0, 0] as [number, number, number, number],
       }
     : null;
 
-  // Optional account notes — kept because notes are quotation-specific,
-  // unlike the boilerplate T&C/signature blocks that were dropped per
-  // sales rep feedback (PDF is just a clean info table for the customer).
-  void mixedVat;
-  void headlineVat;
+  // -----------------------------------------------------------------------
+  // Contact block — "Người báo giá" with red left border, warm cream bg,
+  // 3 fields: Họ và tên (+ role), Điện thoại, Email.
+  // -----------------------------------------------------------------------
+  const ownerRoleVi =
+    owner?.role === "admin" ? "Sales Admin" : "Account Manager";
+  const contactBlock = {
+    table: {
+      widths: ["*"],
+      body: [
+        [
+          {
+            columns: [
+              {
+                width: 90,
+                text: "NGƯỜI\nBÁO GIÁ",
+                fontSize: 9,
+                bold: true,
+                color: HPT_RED_DEEP,
+                characterSpacing: 2,
+                margin: [0, 4, 0, 0],
+                lineHeight: 1.5,
+              },
+              {
+                width: "*",
+                columns: [
+                  {
+                    width: "*",
+                    stack: [
+                      { text: "HỌ VÀ TÊN", style: "contactLabel" },
+                      {
+                        text: owner?.name ?? "—",
+                        fontSize: 12,
+                        bold: true,
+                        color: INK,
+                        margin: [0, 2, 0, 0],
+                      },
+                      { text: ownerRoleVi, fontSize: 9, color: INK_MUTE, margin: [0, 1, 0, 0] },
+                    ],
+                  },
+                  {
+                    width: "*",
+                    stack: [
+                      { text: "ĐIỆN THOẠI", style: "contactLabel" },
+                      { text: "—", fontSize: 12, color: INK, margin: [0, 2, 0, 0] },
+                    ],
+                  },
+                  {
+                    width: "*",
+                    stack: [
+                      { text: "EMAIL", style: "contactLabel" },
+                      { text: owner?.email ?? "—", fontSize: 11, color: INK, margin: [0, 2, 0, 0] },
+                    ],
+                  },
+                ],
+                columnGap: 14,
+              },
+            ],
+            columnGap: 16,
+            margin: [16, 14, 16, 14],
+          },
+        ],
+      ],
+    },
+    layout: {
+      fillColor: () => PAPER_WARM,
+      hLineWidth: () => 0,
+      vLineColor: (i: number, node: { table: { widths?: unknown[] } }) => {
+        if (i === 0) return HPT_RED;
+        if (i === (node.table.widths?.length ?? 0)) return "transparent";
+        return "transparent";
+      },
+      vLineWidth: (i: number, node: { table: { widths?: unknown[] } }) => {
+        if (i === 0) return 3;
+        if (i === (node.table.widths?.length ?? 0)) return 0;
+        return 0;
+      },
+    },
+    margin: [0, 22, 0, 0] as [number, number, number, number],
+  };
+
   const notesBlock = quotation.notes
     ? {
         stack: [
-          { text: "GHI CHÚ", style: "sectionTitle", margin: [0, 14, 0, 6] },
-          { text: quotation.notes, fontSize: 10, color: "#1e293b" },
+          {
+            text: [
+              { text: "◆  ", color: HPT_RED, fontSize: 9 },
+              { text: "GHI CHÚ", fontSize: 10, bold: true, color: INK, characterSpacing: 2 },
+            ],
+            margin: [0, 22, 0, 8] as [number, number, number, number],
+          },
+          { text: quotation.notes, fontSize: 10, color: INK_SOFT, lineHeight: 1.5 },
         ],
       }
     : null;
 
   const content: unknown[] = [
+    accentBar,
     headerBand,
-    navyDivider,
+    headerDivider,
     titleBlock,
-    customerInfo,
-    titleRow,
+    metaRow,
+    sectionHead,
     itemTable,
   ];
   if (totalsBlock) content.push(totalsBlock);
-  if (inWords) content.push(inWords);
+  if (inWordsBlock) content.push(inWordsBlock);
   if (notesBlock) content.push(notesBlock);
+  content.push(contactBlock);
 
   const doc: DocDefinition = {
     pageSize: "A4",
-    pageMargins: [40, 40, 40, 70],
-    defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.3, color: "#0f172a" },
+    // pdfmake margins are in points. 1mm ≈ 2.83pt.
+    // Top 22mm ≈ 62pt, sides 20mm ≈ 57pt, bottom 18mm ≈ 51pt.
+    pageMargins: [40, 50, 40, 60],
+    defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.3, color: INK },
     content,
     styles: {
-      logoFallback: { fontSize: 24, bold: true, color: "#1E3A8A" },
-      brandName: { fontSize: 12, bold: true, color: "#1E3A8A" },
-      brandSubname: { fontSize: 9, bold: true, color: "#1E3A8A" },
-      brandAddress: { fontSize: 8, color: "#64748b" },
-      docTitle: { fontSize: 24, bold: true, color: "#1E3A8A" },
-      subtitle: { fontSize: 11, color: "#64748b", margin: [0, 2, 0, 0] },
-      sectionTitle: { fontSize: 11, bold: true, color: "#1E3A8A" },
-      th: { bold: true, fontSize: 10, color: "#ffffff" },
-      label: { fontSize: 8, color: "#64748b", bold: true },
-      value: { fontSize: 10, color: "#0f172a" },
-      muted: { fontSize: 9, color: "#94a3b8", margin: [0, 1, 0, 0] },
-      body: { fontSize: 10, color: "#1e293b" },
-      totalLabel: { fontSize: 10, color: "#475569" },
-      totalValue: { fontSize: 10, color: "#0f172a" },
-      totalLabelBig: { fontSize: 11, bold: true, color: "#1E3A8A" },
-      totalValueBig: { fontSize: 13, bold: true, color: "#1E3A8A" },
+      logoFallback: { fontSize: 28, bold: true, color: HPT_RED },
+      brandName: { fontSize: 12, bold: true, color: INK, characterSpacing: 0.5 },
+      brandTag: { fontSize: 9, color: INK_MUTE, characterSpacing: 2 },
+      metaLabel: { fontSize: 8, bold: true, color: INK_MUTE, characterSpacing: 2 },
+      metaValue: { fontSize: 12, color: INK, bold: false },
+      metaValueMuted: { fontSize: 12, color: INK_MUTE, italics: true },
+      contactLabel: { fontSize: 8, bold: true, color: INK_MUTE, characterSpacing: 2 },
+      th: { bold: true, fontSize: 9, color: "#ffffff", characterSpacing: 1.5 },
+      totalLabel: { fontSize: 10, color: INK_SOFT },
+      totalValue: { fontSize: 10, color: INK, bold: false },
+      totalLabelBig: { fontSize: 11, bold: true, color: HPT_RED_DEEP, characterSpacing: 1 },
+      totalValueBig: { fontSize: 14, bold: true, color: HPT_RED_DEEP },
     },
     footer: (currentPage: number, pageCount: number) => ({
-      columns: [
-        {
-          width: "*",
-          text: "HPT Vietnam Corp.  •  www.hpt.vn  •  HSI Sales AI Platform",
-          fontSize: 8,
-          color: "#94a3b8",
-          alignment: "left",
-          margin: [40, 20, 0, 0],
-        },
-        {
-          width: "auto",
-          text: `${quotation.number}  •  Trang ${currentPage}/${pageCount}`,
-          fontSize: 8,
-          color: "#94a3b8",
-          alignment: "right",
-          margin: [0, 20, 40, 0],
-        },
-      ],
+      margin: [40, 16, 40, 0] as [number, number, number, number],
+      table: {
+        widths: ["*"],
+        body: [
+          [
+            {
+              columns: [
+                {
+                  text: "HPT Vietnam Corp.  •  www.hpt.vn",
+                  fontSize: 8.5,
+                  color: INK_MUTE,
+                  characterSpacing: 0.8,
+                  margin: [0, 8, 0, 0],
+                },
+                {
+                  text: `${quotation.number}  ·  Trang ${currentPage}/${pageCount}`,
+                  fontSize: 8.5,
+                  color: INK_SOFT,
+                  alignment: "right",
+                  margin: [0, 8, 0, 0],
+                },
+              ],
+            },
+          ],
+        ],
+      },
+      layout: {
+        hLineColor: (i: number) => (i === 0 ? LINE : "transparent"),
+        hLineWidth: (i: number) => (i === 0 ? 0.5 : 0),
+        vLineWidth: () => 0,
+      },
     }),
   };
 
@@ -811,6 +1060,17 @@ const HPT_LOGO_BUFFER: Buffer = (() => {
     // Don't crash the whole service if the asset is missing in some
     // deployment — the XLSX renderer is the only consumer, and it can
     // render without the logo just fine.
+    return Buffer.alloc(0);
+  }
+})();
+
+// Hi-res PNG version of the logo — used by the PDF renderer where the
+// extra resolution matters when the file is zoomed.
+const HPT_LOGO_PNG_BUFFER: Buffer = (() => {
+  const p = path.join(__dirnameXlsx, "..", "assets", "hpt-logo.png");
+  try {
+    return fs.readFileSync(p);
+  } catch {
     return Buffer.alloc(0);
   }
 })();
