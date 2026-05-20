@@ -213,181 +213,434 @@ interface QuotationItem {
   lineVAT?: number;
 }
 
+/**
+ * Quotation PDF export.
+ *
+ * mode:
+ *   "full"     — internal/full version with prices, VAT, totals, signature.
+ *                What HPT sends to the customer after pricing is final.
+ *   "customer" — customer-review version. Hides every price column and the
+ *                totals block; only shows item descriptions + qty so the
+ *                customer signs off on what they're buying before HPT
+ *                quotes a final price ("chốt số lượng").
+ *
+ * Both modes share the branded header (HPT logo + company info), the
+ * customer-info row, the T&C block, and the signature footer.
+ */
+export type QuotationPDFMode = "full" | "customer";
+
 export async function renderQuotationPDF(
   quotation: Quotation,
   account: Account | null,
+  mode: QuotationPDFMode = "full",
 ): Promise<Buffer> {
   const items = (quotation.items ?? []) as unknown as QuotationItem[];
+  const isFull = mode === "full";
 
-  const tableBody: unknown[][] = [
-    [
-      { text: "STT", style: "th" },
-      { text: "Sản phẩm / Dịch vụ", style: "th" },
-      { text: "SL", style: "th", alignment: "right" },
-      { text: "Đơn giá", style: "th", alignment: "right" },
-      { text: "Giảm %", style: "th", alignment: "right" },
-      { text: "Thành tiền", style: "th", alignment: "right" },
-    ],
-  ];
-  items.forEach((it, i) => {
-    tableBody.push([
-      { text: String(i + 1), alignment: "center" },
+  // Pick a representative VAT rate for the T&C wording. Same logic as the
+  // XLSX renderer — single rate when all rows agree, mixed otherwise.
+  const vatRates = items.map((it) => it.vatPct ?? quotation.tax ?? 10);
+  const uniqueVat = Array.from(new Set(vatRates));
+  const headlineVat = uniqueVat.length === 1 ? uniqueVat[0] : (quotation.tax ?? 10);
+  const mixedVat = uniqueVat.length > 1;
+
+  // HPT logo as a data URI — pdfmake handles base64 images via this form.
+  const logoDataURI =
+    HPT_LOGO_BUFFER.length > 0
+      ? `data:image/jpeg;base64,${HPT_LOGO_BUFFER.toString("base64")}`
+      : null;
+
+  // -----------------------------------------------------------------------
+  // Header band: logo on the left, HPT contact info on the right.
+  // -----------------------------------------------------------------------
+  const headerBand = {
+    columns: [
+      logoDataURI
+        ? { image: logoDataURI, width: 110, margin: [0, 0, 0, 0] }
+        : { text: "HPT", style: "logoFallback", width: 110 },
       {
         stack: [
-          { text: it.name, bold: true },
-          it.vendor ? { text: it.vendor, fontSize: 8, color: "#64748b" } : null,
-          it.description ? { text: it.description, fontSize: 9, color: "#475569" } : null,
+          { text: "HPT VIETNAM CORPORATION", style: "brandName" },
+          { text: "HPT SYSTEM INTEGRATION", style: "brandSubname" },
+          {
+            text: "Office: Lot E2a-3, D1 St., Saigon High Tech Park, Tang Nhon Phu Ward, HCMC, Vietnam",
+            style: "brandAddress",
+            margin: [0, 2, 0, 0],
+          },
+          {
+            text: "Tel: + (84 28) 54 123 400  •  Fax: + (84 28) 54 108 801  •  Website: www.hpt.vn",
+            style: "brandAddress",
+          },
+        ],
+        alignment: "right",
+      },
+    ],
+    columnGap: 10,
+    margin: [0, 0, 0, 6],
+  };
+
+  // Thin navy divider under the header band.
+  const navyDivider = {
+    canvas: [{ type: "line", x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1.2, lineColor: "#1E3A8A" }],
+    margin: [0, 0, 0, 12],
+  };
+
+  // -----------------------------------------------------------------------
+  // Title block — centered "BÁO GIÁ" + número + (if customer mode) sub
+  // tag making the doc role obvious.
+  // -----------------------------------------------------------------------
+  const titleBlock = {
+    stack: [
+      {
+        text: isFull ? "BÁO GIÁ" : "BÁO GIÁ — XÁC NHẬN SỐ LƯỢNG",
+        alignment: "center",
+        style: "docTitle",
+      },
+      {
+        text: `Số: ${quotation.number}`,
+        alignment: "center",
+        style: "subtitle",
+      },
+    ],
+    margin: [0, 0, 0, 14],
+  };
+
+  // -----------------------------------------------------------------------
+  // Customer info row — 2 columns. Left: KHÁCH HÀNG. Right: dates.
+  // -----------------------------------------------------------------------
+  const customerInfo = {
+    columns: [
+      {
+        width: "*",
+        stack: [
+          { text: "KHÁCH HÀNG", style: "label" },
+          { text: account?.companyName ?? "—", style: "value", bold: true, margin: [0, 2, 0, 0] },
+          account?.address ? { text: account.address, style: "muted" } : null,
+          account?.industry ? { text: account.industry, style: "muted" } : null,
         ].filter(Boolean),
       },
-      { text: `${it.qty}${it.unit ? ` ${it.unit}` : ""}`, alignment: "right" },
-      { text: vndMoney(it.unitPrice, quotation.currency), alignment: "right" },
-      { text: `${it.discount ?? 0}%`, alignment: "right" },
-      { text: vndMoney(it.lineTotal, quotation.currency), alignment: "right", bold: true },
+      {
+        width: 180,
+        stack: [
+          { text: "NGÀY LẬP", style: "label", alignment: "right" },
+          { text: vndDate(quotation.createdAt), style: "value", alignment: "right", margin: [0, 2, 0, 6] },
+          quotation.validUntil
+            ? { text: "HIỆU LỰC ĐẾN", style: "label", alignment: "right" }
+            : null,
+          quotation.validUntil
+            ? { text: vndDate(quotation.validUntil), style: "value", alignment: "right", margin: [0, 2, 0, 0] }
+            : null,
+        ].filter(Boolean),
+      },
+    ],
+    margin: [0, 0, 0, 8],
+  };
+
+  const titleRow = {
+    columns: [
+      {
+        width: "*",
+        stack: [
+          { text: "NỘI DUNG BÁO GIÁ", style: "label" },
+          { text: quotation.title, style: "value", bold: true, margin: [0, 2, 0, 0] },
+        ],
+      },
+    ],
+    margin: [0, 0, 0, 12],
+  };
+
+  // -----------------------------------------------------------------------
+  // Item table — column set depends on mode.
+  //   full:     STT / Sản phẩm / ĐVT / SL / Đơn giá / VAT% / Thành tiền
+  //   customer: STT / Sản phẩm / ĐVT / SL
+  // -----------------------------------------------------------------------
+  const tableBody: unknown[][] = [];
+  if (isFull) {
+    tableBody.push([
+      { text: "STT", style: "th", alignment: "center" },
+      { text: "Sản phẩm / Mô tả", style: "th" },
+      { text: "ĐVT", style: "th", alignment: "center" },
+      { text: "SL", style: "th", alignment: "center" },
+      { text: "Đơn giá (VNĐ)", style: "th", alignment: "right" },
+      { text: "VAT %", style: "th", alignment: "right" },
+      { text: "Thành tiền (VNĐ)", style: "th", alignment: "right" },
     ]);
+  } else {
+    tableBody.push([
+      { text: "STT", style: "th", alignment: "center" },
+      { text: "Sản phẩm / Mô tả", style: "th" },
+      { text: "ĐVT", style: "th", alignment: "center" },
+      { text: "SL", style: "th", alignment: "center" },
+    ]);
+  }
+
+  items.forEach((it, i) => {
+    const productCell = {
+      stack: [
+        { text: it.name, bold: true, fontSize: 10 },
+        it.vendor ? { text: it.vendor, fontSize: 8, color: "#64748b" } : null,
+        it.description
+          ? { text: it.description, fontSize: 9, color: "#475569", margin: [0, 2, 0, 0] }
+          : null,
+      ].filter(Boolean),
+    };
+    if (isFull) {
+      tableBody.push([
+        { text: String(i + 1), alignment: "center" },
+        productCell,
+        { text: it.unit ?? "unit", alignment: "center", fontSize: 9 },
+        { text: String(it.qty), alignment: "center", bold: true },
+        { text: vndMoney(it.unitPrice, quotation.currency), alignment: "right" },
+        { text: `${it.vatPct ?? 10}%`, alignment: "right", fontSize: 9 },
+        { text: vndMoney(it.lineTotal, quotation.currency), alignment: "right", bold: true },
+      ]);
+    } else {
+      tableBody.push([
+        { text: String(i + 1), alignment: "center" },
+        productCell,
+        { text: it.unit ?? "unit", alignment: "center", fontSize: 9 },
+        { text: String(it.qty), alignment: "center", bold: true, fontSize: 12 },
+      ]);
+    }
   });
 
-  const content: unknown[] = [
-    {
-      columns: [
-        {
-          stack: [
-            { text: "BÁO GIÁ", style: "docTitle" },
-            { text: `Số: ${quotation.number}`, style: "subtitle" },
-          ],
-        },
-        {
-          stack: [
-            { text: "Ngày lập", style: "label", alignment: "right" },
-            { text: vndDate(quotation.createdAt), style: "value", alignment: "right" },
-            quotation.validUntil
-              ? { text: `Hiệu lực đến ${vndDate(quotation.validUntil)}`, style: "muted", alignment: "right", margin: [0, 4, 0, 0] }
-              : null,
-          ].filter(Boolean),
-          width: "auto",
-        },
-      ],
-      margin: [0, 0, 0, 10],
+  const itemTable = {
+    table: {
+      widths: isFull ? [22, "*", 36, 28, 70, 36, 80] : [30, "*", 60, 60],
+      headerRows: 1,
+      body: tableBody,
     },
-    {
-      columns: [
-        {
-          width: "*",
-          stack: [
-            { text: "KHÁCH HÀNG", style: "label" },
-            { text: account?.companyName ?? "—", style: "value", bold: true },
-            account?.industry ? { text: account.industry, style: "muted" } : null,
-            account?.address ? { text: account.address, style: "muted" } : null,
-          ].filter(Boolean),
-        },
-        {
-          width: "*",
-          stack: [
-            { text: "TIÊU ĐỀ BÁO GIÁ", style: "label" },
-            { text: quotation.title, style: "value" },
-          ],
-        },
-      ],
-      margin: [0, 0, 0, 16],
+    layout: {
+      fillColor: (row: number) =>
+        row === 0 ? "#1E3A8A" : row % 2 === 0 ? "#F8FAFC" : null,
+      hLineColor: () => "#CBD5E1",
+      vLineColor: () => "#CBD5E1",
+      hLineWidth: (i: number, node: { table: { body: unknown[] } }) =>
+        i === 0 || i === node.table.body.length ? 1.2 : 0.5,
+      vLineWidth: () => 0.5,
     },
-    {
-      table: {
-        widths: [25, "*", 40, 70, 40, 80],
-        headerRows: 1,
-        body: tableBody,
-      },
-      layout: {
-        fillColor: (row: number) => (row === 0 ? "#f1f5f9" : row % 2 === 0 ? "#fafafa" : null),
-        hLineColor: () => "#e2e8f0",
-        vLineColor: () => "#e2e8f0",
-      },
-    },
-    // Totals table on the right
-    {
-      columns: [
-        { width: "*", text: "" },
-        {
-          width: 220,
-          margin: [0, 10, 0, 0],
-          table: {
-            widths: ["*", 90],
-            body: [
-              [
-                { text: "Subtotal", style: "totalLabel" },
-                { text: vndMoney(quotation.subtotal, quotation.currency), style: "totalValue", alignment: "right" },
+  };
+
+  // -----------------------------------------------------------------------
+  // Totals block — full only.
+  // -----------------------------------------------------------------------
+  const subtotal = quotation.subtotal;
+  const totalVAT = Math.max(0, quotation.total - quotation.subtotal);
+  const grandTotal = quotation.total;
+  const totalsBlock = isFull
+    ? {
+        columns: [
+          { width: "*", text: "" },
+          {
+            width: 260,
+            margin: [0, 14, 0, 0],
+            table: {
+              widths: ["*", 110],
+              body: [
+                [
+                  { text: "Tổng chưa VAT (VNĐ)", style: "totalLabel" },
+                  {
+                    text: vndMoney(subtotal, quotation.currency),
+                    style: "totalValue",
+                    alignment: "right",
+                  },
+                ],
+                [
+                  { text: "VAT (VNĐ)", style: "totalLabel" },
+                  {
+                    text: vndMoney(totalVAT, quotation.currency),
+                    style: "totalValue",
+                    alignment: "right",
+                  },
+                ],
+                [
+                  { text: "TỔNG CỘNG (VNĐ)", style: "totalLabelBig" },
+                  {
+                    text: vndMoney(grandTotal, quotation.currency),
+                    style: "totalValueBig",
+                    alignment: "right",
+                  },
+                ],
               ],
-              [
-                { text: `Giảm chung (${quotation.discount}%)`, style: "totalLabel" },
-                {
-                  text: vndMoney(Math.round(-quotation.subtotal * (quotation.discount / 100)), quotation.currency),
-                  style: "totalValue",
-                  alignment: "right",
-                },
-              ],
-              [
-                { text: `VAT (${quotation.tax}%)`, style: "totalLabel" },
-                {
-                  text: vndMoney(
-                    Math.round(
-                      quotation.subtotal * (1 - quotation.discount / 100) * (quotation.tax / 100),
-                    ),
-                    quotation.currency,
-                  ),
-                  style: "totalValue",
-                  alignment: "right",
-                },
-              ],
-              [
-                { text: "TỔNG CỘNG", style: "totalLabelBig" },
-                { text: vndMoney(quotation.total, quotation.currency), style: "totalValueBig", alignment: "right" },
-              ],
-            ],
+            },
+            layout: {
+              hLineColor: (i: number, node: { table: { body: unknown[] } }) =>
+                i === node.table.body.length - 1 ? "#1E3A8A" : "#CBD5E1",
+              vLineColor: () => "#CBD5E1",
+              hLineWidth: (i: number, node: { table: { body: unknown[] } }) =>
+                i === 0 ? 0 : i === node.table.body.length ? 1.5 : 0.5,
+              vLineWidth: () => 0,
+            },
           },
-          layout: {
-            hLineColor: () => "#cbd5e1",
-            vLineColor: () => "#cbd5e1",
-            hLineWidth: (i: number, node: { table: { body: unknown[] } }) =>
-              i === 0 || i === node.table.body.length ? 0 : 0.5,
-            vLineWidth: () => 0,
-          },
-        },
-      ],
+        ],
+      }
+    : null;
+
+  // -----------------------------------------------------------------------
+  // In-words line — full only.
+  // -----------------------------------------------------------------------
+  const inWords = isFull
+    ? {
+        text: `(Bằng chữ: ${vndInWords(grandTotal)})`,
+        italics: true,
+        fontSize: 10,
+        color: "#1E3A8A",
+        margin: [0, 8, 0, 0],
+      }
+    : null;
+
+  // -----------------------------------------------------------------------
+  // T&C section. Same wording the XLSX uses. Notes column-wise.
+  // -----------------------------------------------------------------------
+  const tcLine1 = mixedVat
+    ? "1. VAT áp dụng theo từng mục như bảng trên."
+    : headlineVat === 0
+      ? "1. Hiện tại, phần mềm không chịu VAT."
+      : `1. Hiện tại, VAT cho phần cứng là ${headlineVat}%.`;
+
+  const tcLines: Array<{ text: string; bold?: boolean }> = [
+    { text: tcLine1 },
+    {
+      text:
+        "    Trường hợp Chính phủ thay đổi mức VAT tại thời điểm xuất hóa đơn, VAT áp dụng theo mức mới.",
     },
+    { text: "2. Thanh toán: T/T hoặc tiền mặt." },
+    {
+      text:
+        "    2.1. Điều khoản: 100% trong vòng 30 ngày sau khi hoàn tất giao hàng và nhận đủ chứng từ thanh toán.",
+    },
+    { text: "    2.2. Số tài khoản HPT Việt Nam:" },
+    { text: "       Công ty CP Dịch vụ Công nghệ Tin học HPT", bold: true },
+    { text: "       Số TK: 3150763149 VND", bold: true },
+    {
+      text:
+        "       Ngân hàng: Ngân hàng TMCP Đầu tư và Phát triển Việt Nam (BIDV) – Chi nhánh Phú Nhuận",
+      bold: true,
+    },
+    { text: "3. Thời gian giao hàng: 02 đến 03 tuần." },
   ];
 
-  if (quotation.notes) {
-    content.push({
-      text: "Ghi chú",
-      style: "h2",
-      margin: [0, 20, 0, 4],
-    });
-    content.push({ text: quotation.notes, style: "body" });
-  }
+  const tcBlock = {
+    stack: [
+      { text: "ĐIỀU KHOẢN & ĐIỀU KIỆN", style: "sectionTitle", margin: [0, 18, 0, 6] },
+      ...tcLines.map((l) => ({
+        text: l.text,
+        fontSize: 9,
+        color: "#1e293b",
+        bold: !!l.bold,
+        margin: [0, 1, 0, 1],
+      })),
+    ],
+  };
+
+  // -----------------------------------------------------------------------
+  // Optional account notes section.
+  // -----------------------------------------------------------------------
+  const notesBlock = quotation.notes
+    ? {
+        stack: [
+          { text: "GHI CHÚ", style: "sectionTitle", margin: [0, 14, 0, 6] },
+          { text: quotation.notes, fontSize: 10, color: "#1e293b" },
+        ],
+      }
+    : null;
+
+  // -----------------------------------------------------------------------
+  // Signature block — both modes. Customer mode emphasises "xác nhận
+  // số lượng" since the price is intentionally absent.
+  // -----------------------------------------------------------------------
+  const signatureBlock = {
+    columns: [
+      {
+        width: "*",
+        stack: [
+          { text: "Đại diện HPT", bold: true, alignment: "center", fontSize: 10 },
+          { text: "GIÁM ĐỐC KINH DOANH", alignment: "center", fontSize: 9, color: "#64748b" },
+          { text: " ", margin: [0, 36, 0, 0] },
+          { text: "ĐẶNG VŨ THÙY LINH", bold: true, alignment: "center", fontSize: 10 },
+        ],
+      },
+      {
+        width: "*",
+        stack: [
+          {
+            text: isFull ? "Xác nhận của khách hàng" : "Xác nhận số lượng",
+            bold: true,
+            alignment: "center",
+            fontSize: 10,
+          },
+          {
+            text: isFull
+              ? "(Ký, ghi rõ họ tên)"
+              : "(Đại diện khách hàng ký xác nhận số lượng các hạng mục)",
+            alignment: "center",
+            fontSize: 9,
+            color: "#64748b",
+          },
+          { text: " ", margin: [0, 36, 0, 0] },
+          { text: " ", margin: [0, 6, 0, 0] },
+        ],
+      },
+    ],
+    margin: [0, 18, 0, 0],
+  };
+
+  const content: unknown[] = [
+    headerBand,
+    navyDivider,
+    titleBlock,
+    customerInfo,
+    titleRow,
+    itemTable,
+  ];
+  if (totalsBlock) content.push(totalsBlock);
+  if (inWords) content.push(inWords);
+  content.push(tcBlock);
+  if (notesBlock) content.push(notesBlock);
+  content.push(signatureBlock);
 
   const doc: DocDefinition = {
     pageSize: "A4",
-    pageMargins: [40, 50, 40, 60],
-    defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.3 },
+    pageMargins: [40, 40, 40, 70],
+    defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.3, color: "#0f172a" },
     content,
     styles: {
-      docTitle: { fontSize: 24, bold: true, color: "#0f172a" },
+      logoFallback: { fontSize: 24, bold: true, color: "#1E3A8A" },
+      brandName: { fontSize: 12, bold: true, color: "#1E3A8A" },
+      brandSubname: { fontSize: 9, bold: true, color: "#1E3A8A" },
+      brandAddress: { fontSize: 8, color: "#64748b" },
+      docTitle: { fontSize: 24, bold: true, color: "#1E3A8A" },
       subtitle: { fontSize: 11, color: "#64748b", margin: [0, 2, 0, 0] },
-      h2: { fontSize: 12, bold: true, color: "#0f172a" },
-      th: { bold: true, fillColor: "#f1f5f9", fontSize: 9, color: "#0f172a" },
+      sectionTitle: { fontSize: 11, bold: true, color: "#1E3A8A" },
+      th: { bold: true, fontSize: 10, color: "#ffffff" },
       label: { fontSize: 8, color: "#64748b", bold: true },
       value: { fontSize: 10, color: "#0f172a" },
-      muted: { fontSize: 9, color: "#94a3b8" },
+      muted: { fontSize: 9, color: "#94a3b8", margin: [0, 1, 0, 0] },
       body: { fontSize: 10, color: "#1e293b" },
-      totalLabel: { fontSize: 9, color: "#475569" },
+      totalLabel: { fontSize: 10, color: "#475569" },
       totalValue: { fontSize: 10, color: "#0f172a" },
-      totalLabelBig: { fontSize: 11, bold: true, color: "#0f172a" },
-      totalValueBig: { fontSize: 13, bold: true, color: "#0f172a" },
+      totalLabelBig: { fontSize: 11, bold: true, color: "#1E3A8A" },
+      totalValueBig: { fontSize: 13, bold: true, color: "#1E3A8A" },
     },
     footer: (currentPage: number, pageCount: number) => ({
-      text: `HSI – HPT Vietnam   ·   ${quotation.number}   ·   Trang ${currentPage}/${pageCount}`,
-      alignment: "center",
-      fontSize: 8,
-      color: "#94a3b8",
-      margin: [0, 20, 0, 0],
+      columns: [
+        {
+          width: "*",
+          text: "HPT Vietnam Corp.  •  www.hpt.vn  •  HSI Sales AI Platform",
+          fontSize: 8,
+          color: "#94a3b8",
+          alignment: "left",
+          margin: [40, 20, 0, 0],
+        },
+        {
+          width: "auto",
+          text: `${quotation.number}  •  Trang ${currentPage}/${pageCount}`,
+          fontSize: 8,
+          color: "#94a3b8",
+          alignment: "right",
+          margin: [0, 20, 40, 0],
+        },
+      ],
     }),
   };
 

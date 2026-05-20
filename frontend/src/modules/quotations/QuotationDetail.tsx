@@ -40,7 +40,11 @@ export function QuotationDetail() {
   const [aiReq, setAiReq] = useState("");
   const [showAi, setShowAi] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  // Two PDF variants: "full" with prices, "customer" qty-only review.
+  // Track which one is in flight so only the matching button spins.
+  const [downloadingPdf, setDownloadingPdf] = useState<"full" | "customer" | null>(
+    null,
+  );
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   // Tracks which language download is in flight so we can spin the right
   // button. null = idle.
@@ -160,26 +164,65 @@ export function QuotationDetail() {
           <ArrowLeft className="h-3.5 w-3.5" /> Quotations
         </Link>
         <div className="flex gap-2">
+          {/* PDF (Có giá) — full quote with prices, VAT, totals. What goes
+              to the customer after pricing is final. */}
           <Button
             variant="outline"
             size="sm"
-            loading={downloadingPdf}
-            disabled={downloadingPdf || q.items.length === 0}
+            loading={downloadingPdf === "full"}
+            disabled={!!downloadingPdf || q.items.length === 0}
+            title="PDF báo giá đầy đủ — có giá, VAT, tổng cộng"
             onClick={async () => {
               if (!q) return;
-              setDownloadingPdf(true);
+              setDownloadingPdf("full");
               try {
-                await downloadFile(`/quotations/${q.id}/export.pdf`, `${q.number}.pdf`);
-                toast.success("Đã tải PDF");
+                await downloadFile(
+                  `/quotations/${q.id}/export.pdf?mode=full`,
+                  `${q.number}.pdf`,
+                );
+                toast.success("Đã tải PDF (Có giá)");
               } catch (err) {
-                toast.error("Tải PDF thất bại", err instanceof Error ? err.message : String(err));
+                toast.error(
+                  "Tải PDF thất bại",
+                  err instanceof Error ? err.message : String(err),
+                );
               } finally {
-                setDownloadingPdf(false);
+                setDownloadingPdf(null);
               }
             }}
           >
             <FileDown className="h-3.5 w-3.5" />
-            PDF
+            PDF (Có giá)
+          </Button>
+          {/* PDF (Không giá) — qty-only review version. Customer xác nhận
+              số lượng before HPT quotes a price. */}
+          <Button
+            variant="outline"
+            size="sm"
+            loading={downloadingPdf === "customer"}
+            disabled={!!downloadingPdf || q.items.length === 0}
+            title="PDF không có giá — gửi khách hàng xác nhận số lượng trước khi chốt giá"
+            onClick={async () => {
+              if (!q) return;
+              setDownloadingPdf("customer");
+              try {
+                await downloadFile(
+                  `/quotations/${q.id}/export.pdf?mode=customer`,
+                  `${q.number}-customer-review.pdf`,
+                );
+                toast.success("Đã tải PDF (Không giá)");
+              } catch (err) {
+                toast.error(
+                  "Tải PDF thất bại",
+                  err instanceof Error ? err.message : String(err),
+                );
+              } finally {
+                setDownloadingPdf(null);
+              }
+            }}
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            PDF (Không giá)
           </Button>
           <Button
             variant="outline"

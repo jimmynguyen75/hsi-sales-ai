@@ -24,6 +24,11 @@ const xlsxUpload = multer({
 });
 
 // GET /api/quotations/:id/export.pdf
+// GET /api/quotations/:id/export.pdf?mode=full|customer
+//   full     — full quote with prices, VAT, totals, signature (default).
+//   customer — qty-only customer-review version. No prices, no totals.
+//              Customer signs off on what they're getting before HPT
+//              commits to a price.
 quotationsRouter.get("/:id/export.pdf", async (req, res, next) => {
   try {
     const userId = (req as AuthedRequest).userId;
@@ -34,18 +39,20 @@ quotationsRouter.get("/:id/export.pdf", async (req, res, next) => {
       ? await prisma.account.findUnique({ where: { id: quotation.accountId } })
       : null;
 
-    const buf = await renderQuotationPDF(quotation, account);
+    const mode = req.query.mode === "customer" ? "customer" : "full";
+    const buf = await renderQuotationPDF(quotation, account, mode);
+    const filename =
+      mode === "customer"
+        ? `${quotation.number}-customer-review.pdf`
+        : `${quotation.number}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${quotation.number}.pdf"`,
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", buf.length.toString());
     await logAudit(req, {
       action: "export",
       entity: "quotation",
       entityId: quotation.id,
-      summary: `Xuất PDF quotation ${quotation.number}`,
+      summary: `Xuất PDF (${mode}) quotation ${quotation.number}`,
     });
     res.end(buf);
   } catch (e) {
