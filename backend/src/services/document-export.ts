@@ -489,53 +489,11 @@ export async function renderQuotationPDF(
       }
     : null;
 
-  // -----------------------------------------------------------------------
-  // T&C section. Same wording the XLSX uses. Notes column-wise.
-  // -----------------------------------------------------------------------
-  const tcLine1 = mixedVat
-    ? "1. VAT áp dụng theo từng mục như bảng trên."
-    : headlineVat === 0
-      ? "1. Hiện tại, phần mềm không chịu VAT."
-      : `1. Hiện tại, VAT cho phần cứng là ${headlineVat}%.`;
-
-  const tcLines: Array<{ text: string; bold?: boolean }> = [
-    { text: tcLine1 },
-    {
-      text:
-        "    Trường hợp Chính phủ thay đổi mức VAT tại thời điểm xuất hóa đơn, VAT áp dụng theo mức mới.",
-    },
-    { text: "2. Thanh toán: T/T hoặc tiền mặt." },
-    {
-      text:
-        "    2.1. Điều khoản: 100% trong vòng 30 ngày sau khi hoàn tất giao hàng và nhận đủ chứng từ thanh toán.",
-    },
-    { text: "    2.2. Số tài khoản HPT Việt Nam:" },
-    { text: "       Công ty CP Dịch vụ Công nghệ Tin học HPT", bold: true },
-    { text: "       Số TK: 3150763149 VND", bold: true },
-    {
-      text:
-        "       Ngân hàng: Ngân hàng TMCP Đầu tư và Phát triển Việt Nam (BIDV) – Chi nhánh Phú Nhuận",
-      bold: true,
-    },
-    { text: "3. Thời gian giao hàng: 02 đến 03 tuần." },
-  ];
-
-  const tcBlock = {
-    stack: [
-      { text: "ĐIỀU KHOẢN & ĐIỀU KIỆN", style: "sectionTitle", margin: [0, 18, 0, 6] },
-      ...tcLines.map((l) => ({
-        text: l.text,
-        fontSize: 9,
-        color: "#1e293b",
-        bold: !!l.bold,
-        margin: [0, 1, 0, 1],
-      })),
-    ],
-  };
-
-  // -----------------------------------------------------------------------
-  // Optional account notes section.
-  // -----------------------------------------------------------------------
+  // Optional account notes — kept because notes are quotation-specific,
+  // unlike the boilerplate T&C/signature blocks that were dropped per
+  // sales rep feedback (PDF is just a clean info table for the customer).
+  void mixedVat;
+  void headlineVat;
   const notesBlock = quotation.notes
     ? {
         stack: [
@@ -544,46 +502,6 @@ export async function renderQuotationPDF(
         ],
       }
     : null;
-
-  // -----------------------------------------------------------------------
-  // Signature block — both modes. Customer mode emphasises "xác nhận
-  // số lượng" since the price is intentionally absent.
-  // -----------------------------------------------------------------------
-  const signatureBlock = {
-    columns: [
-      {
-        width: "*",
-        stack: [
-          { text: "Đại diện HPT", bold: true, alignment: "center", fontSize: 10 },
-          { text: "GIÁM ĐỐC KINH DOANH", alignment: "center", fontSize: 9, color: "#64748b" },
-          { text: " ", margin: [0, 36, 0, 0] },
-          { text: "ĐẶNG VŨ THÙY LINH", bold: true, alignment: "center", fontSize: 10 },
-        ],
-      },
-      {
-        width: "*",
-        stack: [
-          {
-            text: isFull ? "Xác nhận của khách hàng" : "Xác nhận số lượng",
-            bold: true,
-            alignment: "center",
-            fontSize: 10,
-          },
-          {
-            text: isFull
-              ? "(Ký, ghi rõ họ tên)"
-              : "(Đại diện khách hàng ký xác nhận số lượng các hạng mục)",
-            alignment: "center",
-            fontSize: 9,
-            color: "#64748b",
-          },
-          { text: " ", margin: [0, 36, 0, 0] },
-          { text: " ", margin: [0, 6, 0, 0] },
-        ],
-      },
-    ],
-    margin: [0, 18, 0, 0],
-  };
 
   const content: unknown[] = [
     headerBand,
@@ -595,9 +513,7 @@ export async function renderQuotationPDF(
   ];
   if (totalsBlock) content.push(totalsBlock);
   if (inWords) content.push(inWords);
-  content.push(tcBlock);
   if (notesBlock) content.push(notesBlock);
-  content.push(signatureBlock);
 
   const doc: DocDefinition = {
     pageSize: "A4",
