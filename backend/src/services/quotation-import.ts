@@ -18,6 +18,9 @@
  * audit logging. This service only parses.
  */
 import ExcelJS from "exceljs";
+import { PDFParse } from "pdf-parse";
+import mammoth from "mammoth";
+import { generateStructured } from "../lib/ai.js";
 
 export interface ParsedLineItem {
   name: string;
@@ -396,4 +399,229 @@ export async function parseQuotationXLSX(buf: Buffer): Promise<ParsedQuotation> 
     items,
     warnings,
   };
+}
+
+// =========================================================================
+// Multi-format extractor + AI-based parser
+// =========================================================================
+// The XLSX fast-path above is preferred for known templates because it's
+// deterministic and free. For other formats (PDF, DOCX, TXT) — and for
+// XLSX files whose structure doesn't match our heuristics — we extract
+// plain text and ask the LLM to pull the same fields out.
+
+/** Truncate the AI input so we stay well below Groq's context limit
+ *  without losing the table region. Quotations almost never exceed
+ *  20K chars of usable text; cap at 25K to leave room for the prompt. */
+const AI_TEXT_MAX_CHARS = 25_000;
+
+/** Pull readable text out of a quotation file regardless of format.
+ *  Returns plain text suitable for an LLM prompt. */
+export async function extractQuotationText(
+  buffer: Buffer,
+  filename: string,
+): Promise<string> {
+  const lower = filename.toLowerCase();
+
+  if (lower.endsWith(".pdf")) {
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const result = await parser.getText();
+      return cleanText(result.text);
+    } finally {
+      await parser.destroy();
+    }
+  }
+
+  if (lower.endsWith(".docx")) {
+    const result = await mammoth.extractRawText({ buffer });
+    return cleanText(result.value);
+  }
+
+  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+    // Flatten every sheet to TSV-ish lines so the LLM sees the table
+    // structure preserved (tabs between cells, newlines between rows).
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+    const sections: string[] = [];
+    for (const ws of wb.worksheets) {
+      const lines: string[] = [`# Sheet: ${ws.name}`];
+      const cols = Math.max(ws.actualColumnCount, 8);
+      for (let r = 1; r <= ws.actualRowCount; r++) {
+        const cells: string[] = [];
+        for (let c = 1; c <= cols; c++) {
+          cells.push(strVal(ws.getCell(r, c).value));
+        }
+        // Skip rows that are entirely empty.
+        if (cells.every((s) => !s.trim())) continue;
+        lines.push(cells.join("\t"));
+      }
+      sections.push(lines.join("\n"));
+    }
+    return cleanText(sections.join("\n\n"));
+  }
+
+  if (lower.endsWith(".txt") || lower.endsWith(".csv")) {
+    return cleanText(buffer.toString("utf8"));
+  }
+
+  throw new Error(`Định dạng file không hỗ trợ: ${filename}`);
+}
+
+function cleanText(raw: string): string {
+  return raw
+    .split("\n")
+    .map((line) => line.replace(/\s+$/g, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Shape the model is asked to return. Matches ParsedQuotation but with
+ *  string dates so it round-trips through JSON cleanly. */
+interface AIExtractedQuotation {
+  title: string | null;
+  customerName: string | null;
+  /** YYYY-MM-DD format or null. */
+  validUntil: string | null;
+  items: Array<{
+    name: string;
+    description?: string;
+    vendor?: string;
+    partNumber?: string;
+    qty: number;
+    unitPrice: number;
+    vatPct?: number;
+  }>;
+}
+
+const AI_SYSTEM_PROMPT = `Bạn là parser báo giá B2B của HPT Vietnam. Người dùng dán nội dung file báo giá (PDF / DOCX / Excel / text), bạn trích xuất ra dữ liệu có cấu trúc.
+
+Trích xuất chính xác các trường sau dưới dạng JSON:
+
+{
+  "title": "Tiêu đề báo giá (RFP, Đề mục, Subject) hoặc null",
+  "customerName": "Tên công ty khách hàng (sau 'To:' / 'Kính gửi:' / 'Customer:') hoặc null",
+  "validUntil": "Ngày hết hạn dạng YYYY-MM-DD (sau 'Valid until' / 'Có hiệu lực đến') hoặc null",
+  "items": [
+    {
+      "name": "Tên sản phẩm — DÒNG ĐẦU/dòng nổi bật nhất, KHÔNG kèm mô tả chi tiết",
+      "description": "Mô tả chi tiết (tùy chọn, có thể đa dòng)",
+      "vendor": "Hãng (HPE/Dell/IBM/Fortinet/Cisco/...) nếu nhận diện được",
+      "partNumber": "SKU / Mã hàng nếu có (vd FG-80F-BDL-950-60)",
+      "qty": Số lượng (số nguyên dương, mặc định 1 nếu không thấy),
+      "unitPrice": Đơn giá CHƯA VAT (số nguyên VNĐ, đã trừ thousand separators),
+      "vatPct": VAT % của dòng (số 0–100), mặc định 10 nếu không thấy
+    }
+  ]
+}
+
+Quy tắc:
+- CHỈ trả về JSON, không markdown, không giải thích.
+- unitPrice và qty là số (không phải chuỗi), KHÔNG kèm dấu phẩy/chấm thousand-separator.
+- unitPrice = GIỮ NGUYÊN con số trong file. KHÔNG tự tính pre-VAT từ post-VAT, KHÔNG tự cộng/trừ VAT. Trừ khi file ghi rõ "Đơn giá đã bao gồm VAT" / "Price including VAT", còn lại coi như con số trong file đã là pre-VAT.
+- Bỏ qua các dòng "Total Before VAT", "Tổng cộng", "Bằng chữ" — đó không phải line item.
+- Nếu cùng 1 item trải qua nhiều dòng (header + detail), gộp lại thành 1 entry.
+- vatPct: lấy theo chỉ định trong file. Nếu file ghi "Software 0%" / "Hardware 10%" thì áp dụng tương ứng cho từng item. Mặc định 10 nếu không rõ.
+- Nếu không có items nào, trả "items": [].`;
+
+/** Ask the LLM to extract a quotation from arbitrary text. */
+export async function aiParseQuotationText(
+  text: string,
+  userId: string,
+): Promise<ParsedQuotation> {
+  const trimmed = text.slice(0, AI_TEXT_MAX_CHARS);
+  const warnings: string[] = [];
+  if (text.length > AI_TEXT_MAX_CHARS) {
+    warnings.push(
+      `File dài ${text.length} ký tự; AI chỉ đọc ${AI_TEXT_MAX_CHARS} ký tự đầu. Các item ở cuối file có thể bị bỏ.`,
+    );
+  }
+
+  let extracted: AIExtractedQuotation;
+  try {
+    extracted = await generateStructured<AIExtractedQuotation>(
+      AI_SYSTEM_PROMPT,
+      `Nội dung file báo giá:\n\n${trimmed}\n\n--- HẾT FILE ---\n\nTrích xuất theo schema yêu cầu.`,
+      { userId, module: "quotation-import" },
+    );
+  } catch (e) {
+    throw new Error(
+      `AI không parse được file: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  // Normalise + light validation. The model is usually well-behaved but
+  // guard against missing fields and weird types.
+  const items: ParsedLineItem[] = (extracted.items ?? [])
+    .map((it) => {
+      const qty = Math.max(1, Math.round(Number(it.qty) || 1));
+      const unitPrice = Math.max(0, Math.round(Number(it.unitPrice) || 0));
+      const vatPct =
+        it.vatPct != null
+          ? Math.max(0, Math.min(100, Number(it.vatPct)))
+          : undefined;
+      return {
+        name: (it.name || "").trim(),
+        description: it.description?.trim() || undefined,
+        vendor: it.vendor?.trim() || undefined,
+        partNumber: it.partNumber?.trim() || undefined,
+        qty,
+        unitPrice,
+        vatPct,
+      };
+    })
+    .filter((it) => it.name && (it.qty > 0 || it.unitPrice > 0));
+
+  if (items.length === 0) {
+    warnings.push("AI không trích xuất được line item nào từ file.");
+  }
+
+  return {
+    title: (extracted.title || "").trim() || null,
+    customerName: (extracted.customerName || "").trim() || null,
+    validUntil: extracted.validUntil ? new Date(extracted.validUntil) : null,
+    items,
+    warnings,
+  };
+}
+
+/** Top-level entrypoint: detect file type and pick the best parser. For
+ *  XLSX we try the deterministic fast-path first and only fall back to the
+ *  LLM if it returns nothing — saves an API call when our own export
+ *  template is being imported. */
+export async function parseQuotationFile(
+  buffer: Buffer,
+  filename: string,
+  userId: string,
+): Promise<ParsedQuotation> {
+  const lower = filename.toLowerCase();
+
+  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+    const fast = await parseQuotationXLSX(buffer);
+    if (fast.items.length > 0) return fast;
+    // Fast-path missed — extract as text and let the AI handle it.
+    const text = await extractQuotationText(buffer, filename);
+    const ai = await aiParseQuotationText(text, userId);
+    // Carry over both layers' warnings so the rep sees the whole story.
+    ai.warnings = [
+      "Không nhận diện được template Excel — đã dùng AI để parse.",
+      ...fast.warnings,
+      ...ai.warnings,
+    ];
+    return ai;
+  }
+
+  if (
+    lower.endsWith(".pdf") ||
+    lower.endsWith(".docx") ||
+    lower.endsWith(".txt") ||
+    lower.endsWith(".csv")
+  ) {
+    const text = await extractQuotationText(buffer, filename);
+    return aiParseQuotationText(text, userId);
+  }
+
+  throw new Error(
+    `Định dạng file không hỗ trợ: ${filename}. Hỗ trợ: .pdf, .docx, .xlsx, .xls, .txt, .csv`,
+  );
 }

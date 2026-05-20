@@ -80,12 +80,13 @@ export function QuotationList() {
               Catalog
             </Button>
           </Link>
-          {/* Hidden file input — Button triggers the picker. Accepts .xlsx
-              (and .xls for tolerance, parser handles both via exceljs). */}
+          {/* Hidden file input — Button triggers the picker. Accepts
+              Excel / PDF / Word / plain text. The server figures out the
+              format and uses AI for non-template files. */}
           <input
             ref={fileInputRef}
             type="file"
-            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            accept=".xlsx,.xls,.pdf,.docx,.txt,.csv"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -96,11 +97,11 @@ export function QuotationList() {
             variant="outline"
             loading={importing}
             disabled={importing}
-            title="Import quotation từ file Excel — phần mềm tự điền title, customer, items"
+            title="Import quotation từ Excel / PDF / Word / Text — AI tự nhận diện title, customer, items"
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="h-4 w-4" />
-            Import Excel
+            Import (AI)
           </Button>
           <Button onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" />

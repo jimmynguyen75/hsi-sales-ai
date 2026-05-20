@@ -10,7 +10,7 @@ import {
   renderQuotationDOCX,
   renderQuotationXLSX,
 } from "../services/document-export.js";
-import { parseQuotationXLSX } from "../services/quotation-import.js";
+import { parseQuotationFile } from "../services/quotation-import.js";
 import { logAudit, diffSummary } from "../services/audit.js";
 import type { Prisma } from "@prisma/client";
 
@@ -197,10 +197,21 @@ function recompute(
 }
 
 async function nextNumber(): Promise<string> {
+  // Take the highest existing suffix + 1 rather than count+1, so deleting
+  // a quotation in the middle of the sequence doesn't make us reissue a
+  // number that's already been used (and freed).
   const year = new Date().getFullYear();
   const prefix = `QT-${year}-`;
-  const count = await prisma.quotation.count({ where: { number: { startsWith: prefix } } });
-  return `${prefix}${String(count + 1).padStart(4, "0")}`;
+  const rows = await prisma.quotation.findMany({
+    where: { number: { startsWith: prefix } },
+    select: { number: true },
+  });
+  let maxSuffix = 0;
+  for (const { number } of rows) {
+    const n = Number(number.slice(prefix.length));
+    if (Number.isFinite(n) && n > maxSuffix) maxSuffix = n;
+  }
+  return `${prefix}${String(maxSuffix + 1).padStart(4, "0")}`;
 }
 
 quotationsRouter.get("/", async (req, res, next) => {
@@ -270,10 +281,11 @@ quotationsRouter.post("/", async (req, res, next) => {
   }
 });
 
-// POST /api/quotations/import — upload an Excel file and auto-create a
-// quotation from its contents. The parser tolerates both Vietnamese and
-// English headers, and accepts our own export template as well as
-// partner-supplied formats.
+// POST /api/quotations/import — upload a quotation file (XLSX, PDF, DOCX,
+// or TXT) and auto-create a quotation from its contents. For XLSX we
+// first try a deterministic header-based parser; for other formats — or
+// when the XLSX heuristics miss — we extract plain text and use the LLM
+// to pull out title, customer, valid-until, and line items.
 //
 // Optional form fields:
 //   accountId: link to an existing account directly (skips name matching)
@@ -284,7 +296,7 @@ quotationsRouter.post("/import", xlsxUpload.single("file"), async (req, res, nex
     const file = (req as Express.Request & { file?: Express.Multer.File }).file;
     if (!file) return fail(res, 400, "Thiếu file upload (field 'file').");
 
-    const parsed = await parseQuotationXLSX(file.buffer);
+    const parsed = await parseQuotationFile(file.buffer, file.originalname, userId);
     if (parsed.items.length === 0) {
       return fail(
         res,
