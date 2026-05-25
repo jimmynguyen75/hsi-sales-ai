@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,10 +11,11 @@ import {
   FileDown,
   FileText,
   FileSpreadsheet,
+  Building2,
 } from "lucide-react";
 import { api, downloadFile } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import type { Product, Quotation, QuotationLineItem } from "@/lib/types";
+import type { Account, Product, Quotation, QuotationLineItem } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { Input, Textarea, Label } from "@/components/ui/Input";
@@ -78,7 +79,13 @@ export function QuotationDetail() {
 
   const saveMut = useMutation({
     mutationFn: (data: Partial<Quotation>) => api.put<Quotation>(`/quotations/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["quotation", id] }),
+    // Write the server's response straight into the query cache instead of
+    // invalidating. invalidateQueries triggers a refetch that overwrites
+    // the local input value mid-keystroke; setQueryData updates without
+    // remounting inputs, so typing stays smooth.
+    onSuccess: (updated) => {
+      qc.setQueryData(["quotation", id], updated);
+    },
   });
 
   const aiMut = useMutation({
@@ -101,21 +108,66 @@ export function QuotationDetail() {
     },
   });
 
+  // ---------------------------------------------------------------------
+  // Local items mirror + debounced save so per-keystroke edits don't fire
+  // a roundtrip each time. We keep a copy of q.items in state, write to it
+  // immediately on every edit, and flush to the server 600ms after the
+  // last change. Server response writes back via setQueryData (above),
+  // which re-renders without remounting the inputs.
+  // ---------------------------------------------------------------------
+  const [localItems, setLocalItems] = useState<QuotationLineItem[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+
+  // Re-sync the mirror whenever the server payload changes — but skip
+  // sync if we have unsaved local edits (so a save round-trip doesn't
+  // step on whatever the user is currently typing).
+  useEffect(() => {
+    if (!q) return;
+    if (dirtyRef.current) return;
+    setLocalItems(q.items);
+  }, [q?.id, q?.items]);
+
+  function flushItemsNow(items: QuotationLineItem[]) {
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    dirtyRef.current = false;
+    saveMut.mutate({ items });
+  }
+
+  function scheduleItemFlush(items: QuotationLineItem[]) {
+    dirtyRef.current = true;
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = setTimeout(() => flushItemsNow(items), 600);
+  }
+
+  // Cancel any pending debounced save when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    };
+  }, []);
+
   if (isLoading || !q) return <div className="p-8 text-sm text-slate-500">Đang tải...</div>;
 
   function updateItem(itemId: string, patch: Partial<QuotationLineItem>) {
     if (!q) return;
-    const items = q.items.map((it) => (it.id === itemId ? { ...it, ...patch } : it));
-    saveMut.mutate({ items });
+    const items = localItems.map((it) => (it.id === itemId ? { ...it, ...patch } : it));
+    setLocalItems(items);
+    scheduleItemFlush(items);
   }
 
+  // Add/remove are structural changes — flush immediately so the row
+  // appears/disappears without waiting for the 600ms debounce.
   function removeItem(itemId: string) {
-    if (!q) return;
-    saveMut.mutate({ items: q.items.filter((it) => it.id !== itemId) });
+    const items = localItems.filter((it) => it.id !== itemId);
+    setLocalItems(items);
+    flushItemsNow(items);
   }
 
   function addBlankItem() {
-    if (!q) return;
     const newItem: QuotationLineItem = {
       id: newLineId(),
       name: "",
@@ -127,14 +179,15 @@ export function QuotationDetail() {
       unit: "unit",
       lineTotal: 0,
     };
-    saveMut.mutate({ items: [...q.items, newItem] });
+    const items = [...localItems, newItem];
+    setLocalItems(items);
+    flushItemsNow(items);
   }
 
   function addFromProduct(p: Product) {
-    if (!q) return;
-    // From the catalog: seed Đơn giá from partnerCost (the actual cost to HPT)
-    // when available, falling back to listPrice. Margin starts at 0 — sales
-    // rep types the markup they want.
+    // From the catalog: seed Đơn giá from partnerCost (the actual cost to
+    // HPT) when available, falling back to listPrice. Margin starts at 0
+    // — sales rep types the markup they want.
     const baseUnit = p.partnerCost != null && p.partnerCost > 0 ? p.partnerCost : p.listPrice;
     const newItem: QuotationLineItem = {
       id: newLineId(),
@@ -150,7 +203,9 @@ export function QuotationDetail() {
       unit: p.unit,
       lineTotal: 0,
     };
-    saveMut.mutate({ items: [...q.items, newItem] });
+    const items = [...localItems, newItem];
+    setLocalItems(items);
+    flushItemsNow(items);
     setShowPicker(false);
   }
 
@@ -334,6 +389,13 @@ export function QuotationDetail() {
                 <Badge className={STATUS_COLOR[q.status] ?? "bg-slate-100 text-slate-700"}>
                   {q.status}
                 </Badge>
+                {/* Account selector — quotation can be (re)linked to any of
+                    the rep's accounts. Empty option clears the link. Saves
+                    immediately on change since it's a discrete action. */}
+                <AccountPicker
+                  currentAccountId={q.accountId ?? null}
+                  onChange={(id) => saveMut.mutate({ accountId: id })}
+                />
                 {/* Inline date input — same blur-to-save pattern. Empty
                     string clears the value (sent as null). */}
                 <label className="inline-flex items-center gap-1 text-slate-500">
@@ -452,14 +514,14 @@ export function QuotationDetail() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {q.items.length === 0 && (
+              {localItems.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-400">
                     Chưa có line item. Thêm từ catalog hoặc để AI gợi ý.
                   </td>
                 </tr>
               )}
-              {q.items.map((it, idx) => (
+              {localItems.map((it, idx) => (
                 <tr key={it.id} className="align-top">
                   <td className="px-3 py-2 text-slate-400 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2">
@@ -768,5 +830,43 @@ function ProductPicker({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * AccountPicker — small inline dropdown that lets the sales rep link the
+ * quotation to one of their accounts (or unlink it). Lazy-loads the list
+ * the first time the picker opens, then keeps it cached.
+ */
+function AccountPicker({
+  currentAccountId,
+  onChange,
+}: {
+  currentAccountId: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const { data: accounts } = useQuery({
+    queryKey: ["accounts", "all"],
+    queryFn: () => api.get<Account[]>("/accounts"),
+  });
+  const current = accounts?.find((a) => a.id === currentAccountId);
+  return (
+    <label className="inline-flex items-center gap-1 text-slate-500">
+      <Building2 className="h-3 w-3" />
+      Khách hàng:
+      <select
+        value={currentAccountId ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 max-w-[200px]"
+        title={current?.companyName ?? "Chưa gắn account"}
+      >
+        <option value="">— Chưa gắn —</option>
+        {(accounts ?? []).map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.companyName}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

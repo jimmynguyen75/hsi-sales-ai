@@ -422,6 +422,10 @@ const updateSchema = z.object({
   tax: z.number().min(0).max(100).optional(),
   notes: z.string().optional().nullable(),
   validUntil: z.string().optional().nullable(),
+  // Link / unlink the quotation to an account. Empty string is treated
+  // as "clear the link".
+  accountId: z.string().optional().nullable(),
+  dealId: z.string().optional().nullable(),
 });
 
 quotationsRouter.put("/:id", async (req, res, next) => {
@@ -439,6 +443,14 @@ quotationsRouter.put("/:id", async (req, res, next) => {
     if (input.notes !== undefined) data.notes = input.notes;
     if (input.validUntil !== undefined) {
       data.validUntil = input.validUntil ? new Date(input.validUntil) : null;
+    }
+    // Account / deal FKs are nullable scalar columns (no Prisma relation
+    // declared on Quotation), so write them directly. Empty string = unlink.
+    if (input.accountId !== undefined) {
+      data.accountId = input.accountId || null;
+    }
+    if (input.dealId !== undefined) {
+      data.dealId = input.dealId || null;
     }
 
     const disc = input.discount ?? existing.discount;
