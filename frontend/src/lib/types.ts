@@ -484,6 +484,8 @@ export interface Quotation {
   number: string;
   title: string;
   accountId: string | null;
+  /** Enriched on the list endpoint — company name of the linked account. */
+  accountName?: string | null;
   dealId: string | null;
   currency: string;
   items: QuotationLineItem[];

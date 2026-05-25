@@ -233,7 +233,25 @@ quotationsRouter.get("/", async (req, res, next) => {
       where,
       orderBy: { updatedAt: "desc" },
     });
-    ok(res, items);
+
+    // Quotation has no Prisma relation declared for the account — just the
+    // raw accountId scalar. Fetch the company name for each linked account
+    // in one extra query so the list page can show it without N+1s.
+    const accountIds = Array.from(
+      new Set(items.map((i) => i.accountId).filter((x): x is string => !!x)),
+    );
+    const accounts = accountIds.length
+      ? await prisma.account.findMany({
+          where: { id: { in: accountIds } },
+          select: { id: true, companyName: true },
+        })
+      : [];
+    const nameById = new Map(accounts.map((a) => [a.id, a.companyName]));
+    const enriched = items.map((it) => ({
+      ...it,
+      accountName: it.accountId ? nameById.get(it.accountId) ?? null : null,
+    }));
+    ok(res, enriched);
   } catch (e) {
     next(e);
   }

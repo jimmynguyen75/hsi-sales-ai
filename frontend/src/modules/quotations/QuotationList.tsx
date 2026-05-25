@@ -128,9 +128,24 @@ export function QuotationList() {
             <Card className="hover:border-brand-300 hover:shadow-md transition">
               <CardBody>
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-medium text-sm line-clamp-1">{q.title}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{q.number}</div>
+                    <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
+                      <span>{q.number}</span>
+                      {/* Show linked account so reps can scan the list without
+                          opening each card. Dash if unlinked. */}
+                      {q.accountName ? (
+                        <>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-700 truncate">{q.accountName}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-slate-300">·</span>
+                          <span className="italic text-slate-400">chưa gắn khách hàng</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <Badge className={STATUS_COLOR[q.status] ?? "bg-slate-100 text-slate-700"}>
                     {q.status}
