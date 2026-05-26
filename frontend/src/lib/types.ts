@@ -488,6 +488,8 @@ export interface Quotation {
   accountName?: string | null;
   dealId: string | null;
   currency: string;
+  /** VND-equivalent rate for the chosen currency. Null when currency=VND. */
+  exchangeRate: number | null;
   items: QuotationLineItem[];
   subtotal: number;
   discount: number;

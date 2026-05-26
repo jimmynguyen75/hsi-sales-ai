@@ -718,24 +718,90 @@ export function QuotationDetail() {
 
         <Card className="print:border-0 print:shadow-none">
           <CardBody className="space-y-2 text-sm">
+            {/* Currency + exchange rate. VND is the default and hides the
+                exchange-rate input. USD/EUR show it so reps can quote a
+                foreign vendor price and let the system show the converted
+                Tổng VND. */}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] text-slate-500">Tiền tệ</span>
+                <select
+                  value={q.currency}
+                  onChange={(e) => saveMut.mutate({ currency: e.target.value })}
+                  className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                >
+                  <option value="VND">VND (₫)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="JPY">JPY (¥)</option>
+                </select>
+              </label>
+              {q.currency !== "VND" && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-slate-500">
+                    Tỷ giá → VND
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={q.exchangeRate ?? ""}
+                    onChange={(e) =>
+                      saveMut.mutate({
+                        exchangeRate: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                    placeholder="VD: 25,430"
+                    className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </label>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100" />
+
             {/* Subtotal = Σ lineTotal (pre-VAT). VAT is per-row now, so the
                 aggregate VAT here is just the sum of each row's VAT amount.
                 Tổng cộng = subtotal + total VAT. */}
             <div className="flex justify-between">
               <span className="text-slate-600">Subtotal (chưa VAT)</span>
-              <span className="font-medium tabular-nums">{formatVND(q.subtotal)}</span>
+              <span className="font-medium tabular-nums">
+                {q.subtotal.toLocaleString("vi-VN")} {q.currency}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-600">VAT</span>
               <span className="font-medium tabular-nums">
-                {formatVND(Math.max(0, q.total - q.subtotal))}
+                {Math.max(0, q.total - q.subtotal).toLocaleString("vi-VN")} {q.currency}
               </span>
             </div>
             <div className="flex justify-between pt-2 border-t border-slate-200 text-base">
               <span className="font-semibold">Tổng cộng</span>
-              <span className="font-bold text-brand-700 tabular-nums">{formatVND(q.total)}</span>
+              <span className="font-bold text-brand-700 tabular-nums">
+                {q.total.toLocaleString("vi-VN")} {q.currency}
+              </span>
             </div>
-            <div className="text-[11px] text-slate-400">{q.currency}</div>
+            {/* Converted VND total when currency is foreign. Only shown when
+                we have an exchange rate; otherwise prompt the rep to enter
+                one so the customer can see the converted amount. */}
+            {q.currency !== "VND" && (
+              <div className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-xs">
+                {q.exchangeRate && q.exchangeRate > 0 ? (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">
+                      Quy đổi VND @ {q.exchangeRate.toLocaleString("vi-VN")}
+                    </span>
+                    <span className="font-semibold text-slate-900 tabular-nums">
+                      {Math.round(q.total * q.exchangeRate).toLocaleString("vi-VN")} ₫
+                    </span>
+                  </div>
+                ) : (
+                  <span className="italic text-slate-400">
+                    Nhập tỷ giá để hiển thị giá quy đổi VND.
+                  </span>
+                )}
+              </div>
+            )}
           </CardBody>
         </Card>
       </div>

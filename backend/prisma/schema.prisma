@@ -434,7 +434,11 @@ model Quotation {
   accountId   String?
   dealId      String?
   ownerId     String
-  currency    String    @default("VND")
+  currency    String    @default("VND") // VND | USD | EUR | ...
+  // Exchange rate to VND. Only meaningful when currency != "VND". E.g.
+  // currency=USD, exchangeRate=25430 means 1 USD = 25,430 VND. Used by
+  // the UI to show both native and VND-converted totals.
+  exchangeRate Float?
   // items: Array<{ id, productId?, name, description?, vendor?, qty, unitPrice, discount (%), lineTotal }>
   items       Json      @default("[]")
   subtotal    Float     @default(0)

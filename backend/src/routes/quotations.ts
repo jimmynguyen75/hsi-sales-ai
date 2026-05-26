@@ -435,6 +435,8 @@ const updateSchema = z.object({
   title: z.string().optional(),
   status: z.enum(["draft", "sent", "accepted", "rejected", "expired"]).optional(),
   currency: z.string().optional(),
+  // Exchange rate to VND. Required when currency != VND, otherwise ignored.
+  exchangeRate: z.number().positive().optional().nullable(),
   items: z.array(lineItemSchema).optional(),
   discount: z.number().min(0).max(100).optional(),
   tax: z.number().min(0).max(100).optional(),
@@ -458,6 +460,7 @@ quotationsRouter.put("/:id", async (req, res, next) => {
     if (input.title !== undefined) data.title = input.title;
     if (input.status !== undefined) data.status = input.status;
     if (input.currency !== undefined) data.currency = input.currency;
+    if (input.exchangeRate !== undefined) data.exchangeRate = input.exchangeRate;
     if (input.notes !== undefined) data.notes = input.notes;
     if (input.validUntil !== undefined) {
       data.validUntil = input.validUntil ? new Date(input.validUntil) : null;
