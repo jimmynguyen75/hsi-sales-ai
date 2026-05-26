@@ -127,20 +127,26 @@ interface LineItem {
   description?: string;
   vendor?: string;
   qty: number;
-  // Đơn giá = sell price per unit. Margin is already baked in. lineTotal is
-  // a clean qty × unitPrice multiplication that matches what the rep sees in
-  // the table. When the rep types margin, the frontend re-derives unitPrice
-  // from the implicit cost (currentUnit × (1 - oldMargin/100)) so the
-  // displayed price always reflects the current margin.
+  // Đơn giá = sell price per unit (already includes margin). Stored in the
+  // line's own `currency` — most rows will be VND, but vendor quotes from
+  // HPE / Fortinet / Cisco etc. often come in USD or EUR.
   unitPrice: number;
-  // Gross margin % the unit price was set at. Standard accounting form:
-  //   margin% = (sell - cost) / sell × 100
-  // Stored alongside unitPrice for traceability — when the rep edits margin,
-  // the frontend uses this old value to back-out the implicit cost.
+  // Gross margin %. See recompute() — stored alongside unitPrice for
+  // traceability when the rep edits margin later.
   margin?: number | null;
-  // Per-row VAT %. Different line items may have different VAT rates
-  // (software often 0/exempt, hardware 8/10). Defaults to 10.
+  // Per-row VAT %. Different lines may have different rates (software
+  // often 0/exempt, hardware 8/10).
   vatPct?: number | null;
+  // Per-row currency code: "VND" | "USD" | "EUR" | "JPY" | ... Defaults to
+  // the quotation's currency if absent. lineTotal/lineVAT are computed in
+  // this currency; subtotal/total roll everything up into VND via the
+  // exchange rate below.
+  currency?: string | null;
+  // VND per 1 unit of `currency`. E.g. currency="USD" exchangeRate=25430
+  // means 1 USD = 25,430 VND. Ignored when currency="VND". Stored per-row
+  // because USD/VND rate moves over time and lines may be quoted at
+  // different times by different vendors.
+  exchangeRate?: number | null;
   // Kept for back-compat — older quotations stored partner cost here. New
   // ones don't write to it.
   partnerCost?: number | null;
@@ -162,20 +168,22 @@ function recompute(
   items: LineItem[],
   _overallDiscount: number,
   legacyTax: number,
+  defaultCurrency = "VND",
 ): { items: LineItem[]; subtotal: number; total: number } {
-  // Pricing model:
-  //   unitPrice already reflects the desired margin (sell price per unit).
-  //   lineTotal (pre-VAT) = qty × unitPrice          ← clean visible math
-  //   lineVAT             = lineTotal × (vatPct / 100)
-  //   subtotal            = Σ lineTotal
-  //   total (post-VAT)    = Σ lineTotal + Σ lineVAT
+  // Pricing model with per-row currency:
+  //   lineTotal (pre-VAT, line currency) = qty × unitPrice
+  //   lineVAT   (line currency)          = lineTotal × (vatPct / 100)
+  //   subtotal  (VND)                    = Σ lineTotal × exchangeRate_to_VND
+  //   total     (VND)                    = subtotal + Σ lineVAT × exchangeRate_to_VND
   //
-  // Margin is informational here — the frontend updates unitPrice when the
-  // rep changes margin (see QuotationDetail.tsx). Backend just multiplies.
+  // Each line carries its own currency + exchangeRate so vendor quotes
+  // in USD / EUR / JPY can sit alongside VND lines. Aggregates always
+  // roll up into VND so the customer sees a single Tổng cộng.
   //
   // Legacy migration on save:
   // - Line "% CK" discount folds into unitPrice and resets discount to 0.
   // - Quotation-level tax migrates to per-row vatPct on first save.
+  // - Lines missing currency inherit the quotation's defaultCurrency.
   const defaultVat = legacyTax || 10;
   const recalced = items.map((it) => {
     const lineDiscount = it.discount ?? 0;
@@ -187,18 +195,34 @@ function recompute(
     const lineTotal = baseUnit * it.qty;
     const vatPct = it.vatPct ?? defaultVat;
     const lineVAT = Math.round(lineTotal * (vatPct / 100));
+    const currency = it.currency ?? defaultCurrency;
+    // VND lines always have rate 1; foreign-currency lines need an explicit
+    // rate to roll into the VND total. Missing rate falls back to 1 so we
+    // never NaN out, even if it makes the total look "off" until the rep
+    // sets a rate.
+    const exchangeRate =
+      currency === "VND" ? 1 : it.exchangeRate && it.exchangeRate > 0 ? it.exchangeRate : 1;
     return {
       ...it,
       unitPrice: baseUnit,
       margin,
       vatPct,
+      currency,
+      exchangeRate: currency === "VND" ? null : exchangeRate,
       discount: 0,
       lineTotal,
       lineVAT,
     };
   });
-  const subtotal = recalced.reduce((s, it) => s + it.lineTotal, 0);
-  const totalVAT = recalced.reduce((s, it) => s + (it.lineVAT ?? 0), 0);
+  // Aggregate in VND using each line's own exchange rate.
+  const subtotal = recalced.reduce((s, it) => {
+    const rate = it.currency === "VND" ? 1 : it.exchangeRate ?? 1;
+    return s + it.lineTotal * rate;
+  }, 0);
+  const totalVAT = recalced.reduce((s, it) => {
+    const rate = it.currency === "VND" ? 1 : it.exchangeRate ?? 1;
+    return s + (it.lineVAT ?? 0) * rate;
+  }, 0);
   const total = subtotal + totalVAT;
   return { items: recalced, subtotal: Math.round(subtotal), total };
 }
@@ -381,7 +405,7 @@ quotationsRouter.post("/import", xlsxUpload.single("file"), async (req, res, nex
       unit: "unit",
       lineTotal: 0,
     }));
-    const { items, subtotal, total } = recompute(rawItems, 0, 0);
+    const { items, subtotal, total } = recompute(rawItems, 0, 0, "VND");
 
     const number = await nextNumber();
     const created = await prisma.quotation.create({
@@ -419,12 +443,11 @@ const lineItemSchema = z.object({
   vendor: z.string().optional(),
   qty: z.number().positive(),
   unitPrice: z.number().nonnegative(),
-  // Gross margin %. Must be strictly < 100 (at 100 the formula divides
-  // by zero, giving infinite price). Lower bound > -1000 allows loss
-  // pricing for promos.
   margin: z.number().gt(-1000).lt(100).optional().nullable(),
-  // Per-row VAT %. 0–100.
   vatPct: z.number().min(0).max(100).optional().nullable(),
+  // Per-row currency + exchange rate.
+  currency: z.string().min(1).max(8).optional().nullable(),
+  exchangeRate: z.number().positive().optional().nullable(),
   // Kept optional for back-compat (older payloads).
   partnerCost: z.number().nonnegative().optional().nullable(),
   discount: z.number().min(0).max(100).optional(),
@@ -488,12 +511,16 @@ quotationsRouter.put("/:id", async (req, res, next) => {
         unitPrice: it.unitPrice,
         margin: it.margin ?? 0,
         vatPct: it.vatPct,
+        currency: it.currency ?? null,
+        exchangeRate: it.exchangeRate ?? null,
         partnerCost: it.partnerCost ?? null,
         discount: it.discount ?? 0,
         unit: it.unit,
         lineTotal: 0,
       }));
-      const { items, subtotal, total } = recompute(rawItems, disc, tax);
+      const defaultCurrency =
+        input.currency ?? existing.currency ?? "VND";
+      const { items, subtotal, total } = recompute(rawItems, disc, tax, defaultCurrency);
       data.items = items as unknown as Prisma.InputJsonValue;
       data.subtotal = subtotal;
       data.total = total;

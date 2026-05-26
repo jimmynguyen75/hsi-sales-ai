@@ -334,15 +334,19 @@ export interface QuotationLineItem {
   description?: string;
   vendor?: string;
   qty: number;
-  /** Đơn giá = the partner / cost price typed by the rep. */
+  /** Đơn giá per unit, in this row's currency. */
   unitPrice: number;
   /** Markup % on top of unitPrice. Effective sell = unitPrice × (1 + margin/100). */
   margin?: number | null;
   /** Per-row VAT %. Computed lineVAT = lineTotal × vatPct/100. */
   vatPct?: number | null;
-  /** Pre-VAT line total. */
+  /** Currency code (VND / USD / EUR / JPY / …). Falls back to quotation.currency. */
+  currency?: string | null;
+  /** VND per 1 unit of currency. Only meaningful when currency != VND. */
+  exchangeRate?: number | null;
+  /** Pre-VAT line total in line currency. */
   lineTotal: number;
-  /** Computed VAT amount for this row (read-only from server). */
+  /** Computed VAT amount for this row in line currency. */
   lineVAT?: number;
   /** Legacy fields, kept for back-compat with old quotations. */
   partnerCost?: number | null;
