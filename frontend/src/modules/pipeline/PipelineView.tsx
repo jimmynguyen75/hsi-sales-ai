@@ -187,24 +187,34 @@ export function PipelineView() {
 
   return (
     <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
-      {/* Header — gradient band matching Dashboard hero */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-600 to-indigo-700 px-6 py-5 text-white shadow-md">
-        <div className="pointer-events-none absolute -top-10 -right-10 h-40 w-40 rounded-full bg-white/10" />
-        <div className="relative flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
-              <Briefcase className="h-5 w-5 text-amber-300" />
-              Sales Pipeline FY2026
-            </h1>
-            <p className="text-sm text-blue-100 mt-0.5">
-              Cơ hội theo màu OPP — Đỏ · Vàng · Xanh · Hồng · Xám
-            </p>
+      {/* Header — white "working page" style with a violet icon tile + the
+          five OPP color dots as a signature strip, distinct from Dashboard. */}
+      <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {/* Top rainbow strip = the 5 OPP colors, the identity of this page */}
+        <div className="flex h-1.5 w-full">
+          <div className="flex-1 bg-rose-500" />
+          <div className="flex-1 bg-amber-400" />
+          <div className="flex-1 bg-emerald-500" />
+          <div className="flex-1 bg-pink-400" />
+          <div className="flex-1 bg-slate-300" />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-md shadow-violet-200">
+              <Briefcase className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">Sales Pipeline FY2026</h1>
+              <p className="text-sm text-slate-500 mt-0.5">
+                Cơ hội theo màu OPP — Đỏ · Vàng · Xanh · Hồng · Xám
+              </p>
+            </div>
           </div>
-          <div className="text-right">
-            <div className="text-[11px] uppercase tracking-widest text-blue-200 font-semibold">
+          <div className="text-right rounded-lg bg-slate-50 border border-slate-100 px-4 py-2">
+            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
               Tổng giá trị
             </div>
-            <div className="text-2xl font-bold tabular-nums">
+            <div className="text-2xl font-bold tabular-nums text-slate-900">
               {formatVNDShort(
                 filteredDeals.reduce((s, d) => s + (d.value ?? 0), 0),
               )}
