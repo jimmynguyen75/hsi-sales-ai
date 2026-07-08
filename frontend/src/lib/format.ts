@@ -55,14 +55,47 @@ export function healthLabel(score: number | null | undefined): string {
   return "Critical";
 }
 
+/**
+ * HPT OPP color convention — 5 buckets matching the sales team's spec:
+ *   red     — Đỏ:    chưa đủ điều kiện
+ *   yellow  — Vàng:  chỉ thiếu ngân sách hoặc tiến độ
+ *   green   — Xanh:  thoả tất cả tiêu chí
+ *   pink    — Hồng:  đã ký hợp đồng
+ *   gray    — Xám:   không tiếp cận được
+ * Legacy B2B stage strings map to the closest color for back-compat.
+ */
 export function stageColor(stage: string): string {
   const map: Record<string, string> = {
-    prospecting: "bg-slate-100 text-slate-700",
-    qualification: "bg-blue-100 text-blue-700",
-    proposal: "bg-indigo-100 text-indigo-700",
-    negotiation: "bg-amber-100 text-amber-800",
-    closed_won: "bg-emerald-100 text-emerald-800",
-    closed_lost: "bg-rose-100 text-rose-800",
+    red: "bg-rose-100 text-rose-800 border-rose-200",
+    yellow: "bg-amber-100 text-amber-800 border-amber-200",
+    green: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    pink: "bg-pink-100 text-pink-800 border-pink-200",
+    gray: "bg-slate-100 text-slate-600 border-slate-200",
+    // Legacy — kept so older deals don't render as fallback slate.
+    prospecting: "bg-rose-100 text-rose-800 border-rose-200",
+    qualification: "bg-amber-100 text-amber-800 border-amber-200",
+    proposal: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    negotiation: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    closed_won: "bg-pink-100 text-pink-800 border-pink-200",
+    closed_lost: "bg-slate-100 text-slate-600 border-slate-200",
   };
   return map[stage] ?? "bg-slate-100 text-slate-700";
+}
+
+/** Vietnamese label for a stage. Used across pipeline/dashboard/details. */
+export function stageLabel(stage: string): string {
+  const map: Record<string, string> = {
+    red: "Đỏ",
+    yellow: "Vàng",
+    green: "Xanh",
+    pink: "Hồng",
+    gray: "Xám",
+    prospecting: "Đỏ",
+    qualification: "Vàng",
+    proposal: "Xanh",
+    negotiation: "Xanh",
+    closed_won: "Hồng",
+    closed_lost: "Xám",
+  };
+  return map[stage] ?? stage;
 }

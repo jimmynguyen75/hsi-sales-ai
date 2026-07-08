@@ -39,7 +39,22 @@ dealsRouter.get("/", async (req, res, next) => {
 const dealSchema = z.object({
   title: z.string().min(1),
   value: z.number().optional().nullable(),
+  grossProfit: z.number().optional().nullable(),
+  // Deal stage = HPT's OPP color convention (5 buckets):
+  //   red    — chưa đủ điều kiện (>=1/6 tiêu chí không thoả)
+  //   yellow — chỉ thiếu ngân sách hoặc tiến độ
+  //   green  — thoả tất cả 6 tiêu chí, đang tiến gần đến ký HĐ
+  //   pink   — đã ký hợp đồng với HPT (closed-won)
+  //   gray   — không tiếp cận được (closed-lost)
+  // Old B2B stages kept in the union for legacy read-back on unmigrated
+  // deals, but the UI only writes the color values.
   stage: z.enum([
+    "red",
+    "yellow",
+    "green",
+    "pink",
+    "gray",
+    // legacy — accepted but not used by new deals
     "prospecting",
     "qualification",
     "proposal",

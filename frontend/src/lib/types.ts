@@ -505,3 +505,31 @@ export interface Quotation {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface KpiTarget {
+  fiscalYear: number;
+  revenueTarget: number | null;
+  grossProfitTarget: number | null;
+  newAccountsTarget: number | null;
+}
+
+export interface KpiProgress {
+  fiscalYear: number;
+  yearElapsed: number; // 0..1
+  daysLeft: number;
+  target: {
+    revenue: number | null;
+    grossProfit: number | null;
+    newAccounts: number | null;
+  };
+  achieved: {
+    revenue: number;
+    grossProfit: number;
+    newAccounts: number;
+    wonCount: number;
+  };
+  pipeline: {
+    openValue: number;
+    weightedForecast: number;
+  };
+}

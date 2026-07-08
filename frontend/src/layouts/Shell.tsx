@@ -51,7 +51,10 @@ function roleMeets(user: string | undefined, req: "admin"): boolean {
 const groups: NavGroup[] = [
   {
     title: "Tổng quan",
-    items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/kpi", label: "Cài đặt KPI", icon: Target },
+    ],
   },
   {
     title: "Khách hàng & Pipeline",

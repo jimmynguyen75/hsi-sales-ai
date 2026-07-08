@@ -25,6 +25,26 @@ model User {
   activities Activity[]
   meetings   Meeting[]
   aiLogs     AILog[]
+  kpiTargets KpiTarget[]
+}
+
+// Per-user sales KPI target for a fiscal year. One row per (user, fiscalYear).
+// Dashboard compares these against achieved values (pink deals for revenue +
+// gross profit, accounts created this year for new customers).
+model KpiTarget {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fiscalYear         Int      // e.g. 2026
+  // Targets — all optional; a rep may only care about revenue.
+  revenueTarget      Float?   // doanh số ký HĐ (VND)
+  grossProfitTarget  Float?   // lãi gộp (VND)
+  newAccountsTarget  Int?     // số khách hàng mới
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, fiscalYear])
 }
 
 model Account {
@@ -76,7 +96,10 @@ model Deal {
   id            String    @id @default(cuid())
   title         String
   value         Float?
-  stage         String    // prospecting | qualification | proposal | negotiation | closed_won | closed_lost
+  // Gross profit (lãi gộp) for this deal in VND. Imported from the pipeline
+  // file's "Giá trị LG dự kiến" column; used for the LG KPI.
+  grossProfit   Float?
+  stage         String    // OPP color: red | yellow | green | pink | gray (legacy: prospecting|qualification|proposal|negotiation|closed_won|closed_lost)
   probability   Int?
   expectedClose DateTime?
   vendor        String?   // HPE | Dell | IBM | Palo Alto | CrowdStrike | Microsoft

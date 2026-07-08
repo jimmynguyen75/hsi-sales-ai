@@ -15,14 +15,25 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 
+// HPT OPP color convention (5 buckets). See lib/format.ts stageLabel().
 const STAGES: Array<{ value: string; label: string }> = [
-  { value: "prospecting", label: "Prospecting" },
-  { value: "qualification", label: "Qualification" },
-  { value: "proposal", label: "Proposal" },
-  { value: "negotiation", label: "Negotiation" },
-  { value: "closed_won", label: "Closed — Won" },
-  { value: "closed_lost", label: "Closed — Lost" },
+  { value: "red",    label: "Đỏ — Chưa đủ điều kiện" },
+  { value: "yellow", label: "Vàng — Thiếu ngân sách / tiến độ" },
+  { value: "green",  label: "Xanh — Thoả tất cả tiêu chí" },
+  { value: "pink",   label: "Hồng — Đã ký hợp đồng" },
+  { value: "gray",   label: "Xám — Không tiếp cận được" },
 ];
+
+// Legacy stages coming from unmigrated deals should still show up correctly
+// in the edit form until they're saved with a color value.
+const LEGACY_MAP: Record<string, string> = {
+  prospecting: "red",
+  qualification: "yellow",
+  proposal: "green",
+  negotiation: "green",
+  closed_won: "pink",
+  closed_lost: "gray",
+};
 
 const VENDORS = ["HPE", "Dell", "IBM", "Palo Alto", "CrowdStrike", "Microsoft", "Other"];
 
@@ -46,7 +57,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
   // Owner reassignment is admin-only and only relevant in edit mode.
   const canReassign = me?.role === "admin" && editing;
   const [title, setTitle] = useState("");
-  const [stage, setStage] = useState("prospecting");
+  const [stage, setStage] = useState("red");
   const [value, setValue] = useState("");
   const [probability, setProbability] = useState("");
   const [vendor, setVendor] = useState("");
@@ -66,7 +77,8 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!open) return;
     setTitle(deal?.title ?? "");
-    setStage(deal?.stage ?? "prospecting");
+    // Legacy stages get mapped so old deals load with a valid color option.
+    setStage(LEGACY_MAP[deal?.stage ?? ""] ?? deal?.stage ?? "red");
     setValue(deal?.value != null ? String(deal.value) : "");
     setProbability(deal?.probability != null ? String(deal.probability) : "");
     setVendor(deal?.vendor ?? "");

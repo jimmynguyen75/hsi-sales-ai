@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { Shell } from "@/layouts/Shell";
 import { LoginPage } from "@/pages/Login";
 import { ProfilePage } from "@/pages/Profile";
+import { KpiSettingsPage } from "@/pages/KpiSettings";
 import { ComingSoon } from "@/pages/ComingSoon";
 import { Dashboard } from "@/modules/dashboard/Dashboard";
 import { AccountList } from "@/modules/crm/AccountList";
@@ -65,6 +66,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="kpi" element={<KpiSettingsPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="crm" element={<AccountList />} />
           <Route path="crm/:id" element={<AccountDetail />} />

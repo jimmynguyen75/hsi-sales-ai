@@ -25,9 +25,10 @@ import {
   ArrowUpRight,
   CalendarClock,
   Sparkles,
+  Flag,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Account, Activity, Deal } from "@/lib/types";
+import type { Account, Activity, Deal, KpiProgress } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
@@ -109,6 +110,11 @@ export function Dashboard() {
     queryKey: ["audit", { take: 10 }],
     queryFn: () => api.get<AuditEntry[]>("/audit?take=10"),
     enabled: isAdmin,
+  });
+  const FY = new Date().getFullYear();
+  const { data: kpi } = useQuery({
+    queryKey: ["kpi-progress", FY],
+    queryFn: () => api.get<KpiProgress>(`/kpi/progress?fiscalYear=${FY}`),
   });
 
   // === KPIs ===
@@ -270,6 +276,9 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ===== KPI progress vs targets ===== */}
+      {kpi && <KpiProgressSection kpi={kpi} />}
 
       {/* ===== KPI strip ===== */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -704,6 +713,204 @@ function HealthBucket({
         {count}
       </div>
       <div className="mt-1.5 text-[10px] font-medium text-slate-600">{label}</div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// KPI progress vs fiscal-year targets.
+// ===========================================================================
+function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
+  const hasAnyTarget =
+    kpi.target.revenue != null ||
+    kpi.target.grossProfit != null ||
+    kpi.target.newAccounts != null;
+
+  // Empty state — prompt the rep to set their KPI.
+  if (!hasAnyTarget) {
+    return (
+      <Card className="border-dashed">
+        <CardBody className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 grid place-items-center">
+              <Target className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-800">
+                Chưa đặt mục tiêu KPI năm {kpi.fiscalYear}
+              </div>
+              <div className="text-xs text-slate-500">
+                Đặt mục tiêu để dashboard tự so sánh tiến độ đã đạt.
+              </div>
+            </div>
+          </div>
+          <Link
+            to="/kpi"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 text-white px-3.5 py-2 text-sm font-medium hover:bg-brand-700 transition"
+          >
+            <Target className="h-4 w-4" />
+            Cài đặt KPI
+          </Link>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <CardBody className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Target className="h-4 w-4 text-amber-500" />
+            <div className="text-sm font-semibold">Tiến độ KPI FY{kpi.fiscalYear}</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-slate-500 border border-slate-200 rounded-md px-2 py-0.5">
+              <CalendarClock className="h-3 w-3 inline -mt-0.5 mr-0.5" />
+              Còn {kpi.daysLeft} ngày
+            </span>
+            <Link
+              to="/kpi"
+              className="text-[11px] text-brand-600 hover:underline inline-flex items-center gap-0.5 font-medium"
+            >
+              Sửa mục tiêu <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {kpi.target.revenue != null && (
+            <KpiProgressCard
+              label="Doanh số ký HĐ"
+              achieved={kpi.achieved.revenue}
+              target={kpi.target.revenue}
+              yearElapsed={kpi.yearElapsed}
+              tone="blue"
+              money
+              extra={
+                <>
+                  <ExtraStat label="Pipeline mở" value={formatVNDShort(kpi.pipeline.openValue)} />
+                  <ExtraStat
+                    label="Forecast (weighted)"
+                    value={`+${formatVNDShort(kpi.pipeline.weightedForecast)}`}
+                  />
+                </>
+              }
+            />
+          )}
+          {kpi.target.grossProfit != null && (
+            <KpiProgressCard
+              label="Lãi gộp (LG)"
+              achieved={kpi.achieved.grossProfit}
+              target={kpi.target.grossProfit}
+              yearElapsed={kpi.yearElapsed}
+              tone="emerald"
+              money
+            />
+          )}
+          {kpi.target.newAccounts != null && (
+            <KpiProgressCard
+              label="Khách hàng mới"
+              achieved={kpi.achieved.newAccounts}
+              target={kpi.target.newAccounts}
+              yearElapsed={kpi.yearElapsed}
+              tone="violet"
+            />
+          )}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+const KPI_PROGRESS_TONES: Record<string, { bar: string; text: string }> = {
+  blue: { bar: "bg-blue-500", text: "text-blue-700" },
+  emerald: { bar: "bg-emerald-500", text: "text-emerald-700" },
+  violet: { bar: "bg-violet-500", text: "text-violet-700" },
+};
+
+function KpiProgressCard({
+  label,
+  achieved,
+  target,
+  yearElapsed,
+  tone,
+  money,
+  extra,
+}: {
+  label: string;
+  achieved: number;
+  target: number;
+  yearElapsed: number;
+  tone: keyof typeof KPI_PROGRESS_TONES;
+  money?: boolean;
+  extra?: React.ReactNode;
+}) {
+  const t = KPI_PROGRESS_TONES[tone];
+  const pct = target > 0 ? (achieved / target) * 100 : 0;
+  const pctRounded = Math.round(pct);
+  const gap = Math.max(0, target - achieved);
+  const fmt = (n: number) => (money ? formatVND(n) : n.toLocaleString("vi-VN"));
+  const fmtShort = (n: number) => (money ? formatVNDShort(n) : n.toLocaleString("vi-VN"));
+
+  // Pacing: compare achieved% against year-elapsed%. On track if
+  // achieved pct >= elapsed pct (with a small grace margin).
+  const elapsedPct = yearElapsed * 100;
+  const onTrack = pct >= elapsedPct - 5;
+  const done = pct >= 100;
+
+  return (
+    <div className="rounded-xl border border-slate-200 p-4 space-y-2.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[13px] text-slate-600">{label}</span>
+        <span className={cn("text-[13px] font-semibold", t.text)}>{pctRounded}%</span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-xl font-bold text-slate-900 tabular-nums">{fmtShort(achieved)}</span>
+        <span className="text-xs text-slate-400">/ {fmtShort(target)}</span>
+      </div>
+      {/* progress bar with year-elapsed marker */}
+      <div className="relative h-2 rounded-full bg-slate-100 overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", done ? "bg-emerald-500" : t.bar)}
+          style={{ width: `${Math.min(100, pct)}%` }}
+        />
+        {/* elapsed-time tick */}
+        <div
+          className="absolute top-0 h-full w-0.5 bg-slate-400/70"
+          style={{ left: `${Math.min(100, elapsedPct)}%` }}
+          title={`Đã qua ${Math.round(elapsedPct)}% năm`}
+        />
+      </div>
+      {done ? (
+        <div className="flex items-center gap-1.5 text-[13px] text-emerald-600 font-medium">
+          <Flag className="h-3.5 w-3.5" />
+          Đã đạt mục tiêu! 🎉
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "flex items-center gap-1.5 text-[13px]",
+            onTrack ? "text-slate-600" : "text-rose-600",
+          )}
+        >
+          <Flag className="h-3.5 w-3.5" />
+          Còn thiếu <b className="font-semibold">{fmt(gap)}</b>
+          {!onTrack && <span className="text-[11px]">· chậm tiến độ</span>}
+        </div>
+      )}
+      {extra && (
+        <div className="border-t border-slate-100 pt-2.5 grid grid-cols-2 gap-2">{extra}</div>
+      )}
+    </div>
+  );
+}
+
+function ExtraStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[11px] text-slate-400">{label}</div>
+      <div className="text-xs font-medium text-slate-700 tabular-nums">{value}</div>
     </div>
   );
 }
