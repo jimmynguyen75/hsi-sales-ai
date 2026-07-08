@@ -54,6 +54,28 @@ export function KpiSettingsPage() {
   const [fyStart, setFyStart] = useState(`${FY}-07-01`);
   const [fyEnd, setFyEnd] = useState(`${FY + 1}-06-30`);
 
+  // One-click FY window presets — the three common fiscal calendars.
+  const FY_PRESETS = [
+    { label: `07/${FY} – 06/${FY + 1}`, start: `${FY}-07-01`, end: `${FY + 1}-06-30` },
+    { label: `04/${FY} – 03/${FY + 1}`, start: `${FY}-04-01`, end: `${FY + 1}-03-31` },
+    { label: `01/${FY} – 12/${FY}`, start: `${FY}-01-01`, end: `${FY}-12-31` },
+  ];
+
+  const dateInvalid = !!fyStart && !!fyEnd && fyEnd <= fyStart;
+
+  // Approximate month count in the FY window, for the "≈ X/tháng" hints.
+  const fyMonths = (() => {
+    if (!fyStart || !fyEnd || dateInvalid) return 12;
+    const ms = +new Date(fyEnd) - +new Date(fyStart);
+    return Math.max(1, Math.round(ms / (30.44 * 86_400_000)));
+  })();
+
+  const perMonthHint = (raw: string) => {
+    const n = parseNum(raw);
+    if (!n) return undefined;
+    return `${formatVND(n)} · ≈ ${Math.round(n / fyMonths).toLocaleString("vi-VN")} ₫/tháng`;
+  };
+
   const { data: target } = useQuery({
     queryKey: ["kpi", FY],
     queryFn: () => api.get<KpiTarget>(`/kpi?fiscalYear=${FY}`),
@@ -121,12 +143,36 @@ export function KpiSettingsPage() {
 
           {/* FY window — start/end dates. HPT's FY spans into next year. */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
-            <div className="flex items-center gap-2 mb-2.5">
+            <div className="flex flex-wrap items-center gap-2 mb-2.5">
               <CalendarRange className="h-4 w-4 text-slate-500" />
               <span className="text-sm font-medium text-slate-700">Kỳ năm tài chính</span>
-              <span className="text-[11px] text-slate-400">
-                (FY của HPT không trùng năm dương lịch)
-              </span>
+              {!dateInvalid && (
+                <span className="text-[11px] text-slate-400">· {fyMonths} tháng</span>
+              )}
+              {/* Quick presets — one click fills both dates. */}
+              <div className="ml-auto flex flex-wrap gap-1.5">
+                {FY_PRESETS.map((p) => {
+                  const active = fyStart === p.start && fyEnd === p.end;
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        setFyStart(p.start);
+                        setFyEnd(p.end);
+                      }}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                        active
+                          ? "border-brand-300 bg-brand-50 text-brand-700"
+                          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700",
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -135,7 +181,12 @@ export function KpiSettingsPage() {
                   type="date"
                   value={fyStart}
                   onChange={(e) => setFyStart(e.target.value)}
-                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className={cn(
+                    "h-9 w-full rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-1",
+                    dateInvalid
+                      ? "border-rose-300 focus:ring-rose-400"
+                      : "border-slate-300 focus:ring-brand-500",
+                  )}
                 />
               </div>
               <div>
@@ -144,10 +195,20 @@ export function KpiSettingsPage() {
                   type="date"
                   value={fyEnd}
                   onChange={(e) => setFyEnd(e.target.value)}
-                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className={cn(
+                    "h-9 w-full rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-1",
+                    dateInvalid
+                      ? "border-rose-300 focus:ring-rose-400"
+                      : "border-slate-300 focus:ring-brand-500",
+                  )}
                 />
               </div>
             </div>
+            {dateInvalid && (
+              <div className="mt-2 text-[12px] text-rose-600">
+                Ngày kết thúc phải sau ngày bắt đầu.
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -159,7 +220,7 @@ export function KpiSettingsPage() {
               value={revenue}
               onChange={setRevenue}
               placeholder="VD: 15,000,000,000"
-              hint={revenue ? formatVND(parseNum(revenue) ?? 0) : "Tổng giá trị hợp đồng cả năm"}
+              hint={perMonthHint(revenue) ?? "Tổng giá trị hợp đồng cả kỳ"}
             />
             <KpiField
               icon={<Coins className="h-4 w-4" />}
@@ -169,7 +230,7 @@ export function KpiSettingsPage() {
               value={grossProfit}
               onChange={setGrossProfit}
               placeholder="VD: 2,000,000,000"
-              hint={grossProfit ? formatVND(parseNum(grossProfit) ?? 0) : "Tổng lãi gộp mục tiêu"}
+              hint={perMonthHint(grossProfit) ?? "Tổng lãi gộp mục tiêu cả kỳ"}
             />
             <KpiField
               icon={<UserPlus className="h-4 w-4" />}
@@ -184,7 +245,11 @@ export function KpiSettingsPage() {
           </div>
 
           <div className="flex justify-end pt-1">
-            <Button onClick={() => saveMut.mutate()} loading={saveMut.isPending}>
+            <Button
+              onClick={() => saveMut.mutate()}
+              loading={saveMut.isPending}
+              disabled={dateInvalid || saveMut.isPending}
+            >
               <Save className="h-4 w-4" />
               Lưu mục tiêu
             </Button>

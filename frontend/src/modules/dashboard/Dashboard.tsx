@@ -26,6 +26,9 @@ import {
   CalendarClock,
   Sparkles,
   Flag,
+  Coins,
+  UserPlus,
+  CheckCircle2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Account, Activity, Deal, KpiProgress } from "@/lib/types";
@@ -732,7 +735,7 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
       <Card className="border-dashed">
         <CardBody className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 grid place-items-center">
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white grid place-items-center shadow-md shadow-amber-200">
               <Target className="h-5 w-5" />
             </div>
             <div>
@@ -746,7 +749,7 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
           </div>
           <Link
             to="/kpi"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 text-white px-3.5 py-2 text-sm font-medium hover:bg-brand-700 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 text-white px-3.5 py-2 text-sm font-medium hover:bg-brand-700 transition shadow-sm"
           >
             <Target className="h-4 w-4" />
             Cài đặt KPI
@@ -756,25 +759,33 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
     );
   }
 
+  const elapsedPct = Math.round(kpi.yearElapsed * 100);
+
   return (
     <Card className="overflow-hidden">
       <CardBody className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-amber-500" />
-            <div className="text-sm font-semibold">Tiến độ KPI FY{kpi.fiscalYear}</div>
-            <span className="text-[11px] text-slate-400">
-              {formatDate(kpi.fyStart)} – {formatDate(kpi.fyEnd)}
-            </span>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="text-[11px] text-slate-500 border border-slate-200 rounded-md px-2 py-0.5">
-              <CalendarClock className="h-3 w-3 inline -mt-0.5 mr-0.5" />
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white grid place-items-center shadow-md shadow-amber-200">
+              <Target className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">
+                Tiến độ KPI FY{kpi.fiscalYear}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {formatDate(kpi.fyStart)} – {formatDate(kpi.fyEnd)} · đã qua {elapsedPct}% kỳ
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+              <CalendarClock className="h-3 w-3" />
               Còn {kpi.daysLeft} ngày
             </span>
             <Link
               to="/kpi"
-              className="text-[11px] text-brand-600 hover:underline inline-flex items-center gap-0.5 font-medium"
+              className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-[11px] font-medium text-brand-700 hover:bg-brand-100 transition"
             >
               Sửa mục tiêu <ArrowRight className="h-3 w-3" />
             </Link>
@@ -784,12 +795,14 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {kpi.target.revenue != null && (
             <KpiProgressCard
+              icon={<TrendingUp className="h-4 w-4" />}
               label="Doanh số ký HĐ"
               achieved={kpi.achieved.revenue}
               target={kpi.target.revenue}
               yearElapsed={kpi.yearElapsed}
               tone="blue"
               money
+              forecast={kpi.pipeline.weightedForecast}
               extra={
                 <>
                   <ExtraStat label="Pipeline mở" value={formatVNDShort(kpi.pipeline.openValue)} />
@@ -803,6 +816,7 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
           )}
           {kpi.target.grossProfit != null && (
             <KpiProgressCard
+              icon={<Coins className="h-4 w-4" />}
               label="Lãi gộp (LG)"
               achieved={kpi.achieved.grossProfit}
               target={kpi.target.grossProfit}
@@ -813,6 +827,7 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
           )}
           {kpi.target.newAccounts != null && (
             <KpiProgressCard
+              icon={<UserPlus className="h-4 w-4" />}
               label="Khách hàng mới"
               achieved={kpi.achieved.newAccounts}
               target={kpi.target.newAccounts}
@@ -826,27 +841,77 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
   );
 }
 
-const KPI_PROGRESS_TONES: Record<string, { bar: string; text: string }> = {
-  blue: { bar: "bg-blue-500", text: "text-blue-700" },
-  emerald: { bar: "bg-emerald-500", text: "text-emerald-700" },
-  violet: { bar: "bg-violet-500", text: "text-violet-700" },
+// Tone treatments match the Dashboard KPI cards so the whole page reads as
+// one design system: tinted gradient card + gradient icon chip + solid bar.
+const KPI_PROGRESS_TONES: Record<
+  string,
+  { card: string; chip: string; bar: string; barSoft: string; text: string }
+> = {
+  blue: {
+    card: "bg-gradient-to-br from-blue-50/70 to-white border-blue-100",
+    chip: "from-blue-500 to-blue-600 shadow-blue-200",
+    bar: "bg-blue-500",
+    barSoft: "bg-blue-200",
+    text: "text-blue-700",
+  },
+  emerald: {
+    card: "bg-gradient-to-br from-emerald-50/70 to-white border-emerald-100",
+    chip: "from-emerald-500 to-teal-600 shadow-emerald-200",
+    bar: "bg-emerald-500",
+    barSoft: "bg-emerald-200",
+    text: "text-emerald-700",
+  },
+  violet: {
+    card: "bg-gradient-to-br from-violet-50/70 to-white border-violet-100",
+    chip: "from-violet-500 to-purple-600 shadow-violet-200",
+    bar: "bg-violet-500",
+    barSoft: "bg-violet-200",
+    text: "text-violet-700",
+  },
 };
 
+function PacingBadge({ done, onTrack }: { done: boolean; onTrack: boolean }) {
+  if (done) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shrink-0">
+        <CheckCircle2 className="h-3 w-3" />
+        Đạt mục tiêu
+      </span>
+    );
+  }
+  if (onTrack) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 shrink-0">
+        Đúng tiến độ
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-semibold text-rose-700 shrink-0">
+      Chậm tiến độ
+    </span>
+  );
+}
+
 function KpiProgressCard({
+  icon,
   label,
   achieved,
   target,
   yearElapsed,
   tone,
   money,
+  forecast,
   extra,
 }: {
+  icon: React.ReactNode;
   label: string;
   achieved: number;
   target: number;
   yearElapsed: number;
   tone: keyof typeof KPI_PROGRESS_TONES;
   money?: boolean;
+  forecast?: number;
   extra?: React.ReactNode;
 }) {
   const t = KPI_PROGRESS_TONES[tone];
@@ -856,54 +921,116 @@ function KpiProgressCard({
   const fmt = (n: number) => (money ? formatVND(n) : n.toLocaleString("vi-VN"));
   const fmtShort = (n: number) => (money ? formatVNDShort(n) : n.toLocaleString("vi-VN"));
 
-  // Pacing: compare achieved% against year-elapsed%. On track if
-  // achieved pct >= elapsed pct (with a small grace margin).
+  // Pacing: compare achieved% against year-elapsed% (5% grace margin).
   const elapsedPct = yearElapsed * 100;
   const onTrack = pct >= elapsedPct - 5;
   const done = pct >= 100;
 
+  // Potential segment: if every open deal closed at its weighted forecast,
+  // how much further would the bar reach? Rendered as a lighter tint.
+  const forecastPct =
+    forecast && target > 0 ? Math.min(100 - Math.min(100, pct), (forecast / target) * 100) : 0;
+
   return (
-    <div className="rounded-xl border border-slate-200 p-4 space-y-2.5">
-      <div className="flex items-baseline justify-between">
-        <span className="text-[13px] text-slate-600">{label}</span>
-        <span className={cn("text-[13px] font-semibold", t.text)}>{pctRounded}%</span>
+    <div className={cn("rounded-xl border p-4", t.card)}>
+      {/* Header: icon chip + label + pacing badge */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className={cn(
+              "h-8 w-8 shrink-0 rounded-lg grid place-items-center bg-gradient-to-br text-white shadow-md",
+              t.chip,
+            )}
+          >
+            {icon}
+          </div>
+          <span className="text-[13px] font-medium text-slate-700 truncate">{label}</span>
+        </div>
+        <PacingBadge done={done} onTrack={onTrack} />
       </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-xl font-bold text-slate-900 tabular-nums">{fmtShort(achieved)}</span>
-        <span className="text-xs text-slate-400">/ {fmtShort(target)}</span>
-      </div>
-      {/* progress bar with year-elapsed marker */}
-      <div className="relative h-2 rounded-full bg-slate-100 overflow-hidden">
+
+      {/* Achieved vs target + big percentage */}
+      <div className="flex items-end justify-between gap-2 mb-2.5">
+        <div className="min-w-0">
+          <div className="text-[22px] leading-7 font-bold text-slate-900 tabular-nums truncate">
+            {fmtShort(achieved)}
+          </div>
+          <div className="text-[11px] text-slate-500">mục tiêu {fmtShort(target)}</div>
+        </div>
         <div
-          className={cn("h-full rounded-full transition-all", done ? "bg-emerald-500" : t.bar)}
+          className={cn(
+            "text-[26px] leading-8 font-bold tabular-nums shrink-0",
+            done ? "text-emerald-600" : t.text,
+          )}
+        >
+          {pctRounded}
+          <span className="text-sm font-semibold">%</span>
+        </div>
+      </div>
+
+      {/* Progress bar: solid = achieved, tint = weighted forecast potential,
+          dark tick = today's position in the fiscal year. */}
+      <div className="relative h-2.5 rounded-full bg-white ring-1 ring-inset ring-slate-200/80 overflow-hidden">
+        {forecastPct > 0 && (
+          <div
+            className={cn("absolute inset-y-0 left-0 rounded-full", t.barSoft)}
+            style={{ width: `${Math.min(100, pct + forecastPct)}%` }}
+            title={`Nếu chốt hết pipeline (weighted): ~${Math.round(pct + forecastPct)}%`}
+          />
+        )}
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 rounded-full transition-all",
+            done ? "bg-emerald-500" : t.bar,
+          )}
           style={{ width: `${Math.min(100, pct)}%` }}
         />
-        {/* elapsed-time tick */}
         <div
-          className="absolute top-0 h-full w-0.5 bg-slate-400/70"
-          style={{ left: `${Math.min(100, elapsedPct)}%` }}
-          title={`Đã qua ${Math.round(elapsedPct)}% năm`}
+          className="absolute top-0 h-full w-[2px] bg-slate-600"
+          style={{
+            left: `${Math.min(99, elapsedPct)}%`,
+            boxShadow: "0 0 0 1px rgba(255,255,255,0.9)",
+          }}
+          title={`Hôm nay — đã qua ${Math.round(elapsedPct)}% kỳ`}
         />
       </div>
+      <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+        <span>0%</span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2 w-[2px] bg-slate-600 rounded" />
+          hôm nay {Math.round(elapsedPct)}%
+        </span>
+        <span>100%</span>
+      </div>
+
+      {/* Gap message */}
       {done ? (
-        <div className="flex items-center gap-1.5 text-[13px] text-emerald-600 font-medium">
-          <Flag className="h-3.5 w-3.5" />
-          Đã đạt mục tiêu! 🎉
+        <div className="mt-2 flex items-center gap-1.5 text-[13px] text-emerald-600 font-medium">
+          <Flag className="h-3.5 w-3.5 shrink-0" />
+          {achieved > target ? (
+            <>Vượt mục tiêu +{fmtShort(achieved - target)}</>
+          ) : (
+            <>Đã đạt mục tiêu</>
+          )}
         </div>
       ) : (
         <div
           className={cn(
-            "flex items-center gap-1.5 text-[13px]",
+            "mt-2 flex items-center gap-1.5 text-[13px]",
             onTrack ? "text-slate-600" : "text-rose-600",
           )}
         >
-          <Flag className="h-3.5 w-3.5" />
-          Còn thiếu <b className="font-semibold">{fmt(gap)}</b>
-          {!onTrack && <span className="text-[11px]">· chậm tiến độ</span>}
+          <Flag className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">
+            Còn thiếu <b className="font-semibold">{fmt(gap)}</b>
+          </span>
         </div>
       )}
+
       {extra && (
-        <div className="border-t border-slate-100 pt-2.5 grid grid-cols-2 gap-2">{extra}</div>
+        <div className="mt-2.5 border-t border-slate-200/70 pt-2.5 grid grid-cols-2 gap-2">
+          {extra}
+        </div>
       )}
     </div>
   );
