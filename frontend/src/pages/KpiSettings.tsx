@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Target, Save, TrendingUp, Coins, UserPlus, Users } from "lucide-react";
+import { Target, Save, TrendingUp, Coins, UserPlus, Users, CalendarRange } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/Toast";
@@ -49,6 +49,10 @@ export function KpiSettingsPage() {
   const [revenue, setRevenue] = useState("");
   const [grossProfit, setGrossProfit] = useState("");
   const [newAccounts, setNewAccounts] = useState("");
+  // FY window — HPT's fiscal year doesn't match the calendar year. Default
+  // suggestion: Jul 1 this year → Jun 30 next year.
+  const [fyStart, setFyStart] = useState(`${FY}-07-01`);
+  const [fyEnd, setFyEnd] = useState(`${FY + 1}-06-30`);
 
   const { data: target } = useQuery({
     queryKey: ["kpi", FY],
@@ -60,6 +64,8 @@ export function KpiSettingsPage() {
     setRevenue(grp(target.revenueTarget));
     setGrossProfit(grp(target.grossProfitTarget));
     setNewAccounts(target.newAccountsTarget ? String(target.newAccountsTarget) : "");
+    if (target.fyStart) setFyStart(target.fyStart.slice(0, 10));
+    if (target.fyEnd) setFyEnd(target.fyEnd.slice(0, 10));
   }, [target]);
 
   const { data: team } = useQuery({
@@ -72,6 +78,8 @@ export function KpiSettingsPage() {
     mutationFn: () =>
       api.put<KpiTarget>("/kpi", {
         fiscalYear: FY,
+        fyStart: fyStart ? new Date(fyStart).toISOString() : null,
+        fyEnd: fyEnd ? new Date(fyEnd).toISOString() : null,
         revenueTarget: parseNum(revenue),
         grossProfitTarget: parseNum(grossProfit),
         newAccountsTarget: parseNum(newAccounts),
@@ -109,6 +117,37 @@ export function KpiSettingsPage() {
           <div className="flex items-center gap-2">
             <Badge className="bg-brand-50 text-brand-700 border border-brand-200">FY{FY}</Badge>
             <span className="text-sm font-medium text-slate-700">Mục tiêu của bạn</span>
+          </div>
+
+          {/* FY window — start/end dates. HPT's FY spans into next year. */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+            <div className="flex items-center gap-2 mb-2.5">
+              <CalendarRange className="h-4 w-4 text-slate-500" />
+              <span className="text-sm font-medium text-slate-700">Kỳ năm tài chính</span>
+              <span className="text-[11px] text-slate-400">
+                (FY của HPT không trùng năm dương lịch)
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>Ngày bắt đầu</Label>
+                <input
+                  type="date"
+                  value={fyStart}
+                  onChange={(e) => setFyStart(e.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                />
+              </div>
+              <div>
+                <Label>Ngày kết thúc</Label>
+                <input
+                  type="date"
+                  value={fyEnd}
+                  onChange={(e) => setFyEnd(e.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -36,6 +36,10 @@ model KpiTarget {
   userId             String
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   fiscalYear         Int      // e.g. 2026
+  // Fiscal-year window. HPT's FY doesn't match the calendar year, so the
+  // rep sets explicit start/end dates. Null falls back to Jan 1 – Dec 31.
+  fyStart            DateTime?
+  fyEnd              DateTime?
   // Targets — all optional; a rep may only care about revenue.
   revenueTarget      Float?   // doanh số ký HĐ (VND)
   grossProfitTarget  Float?   // lãi gộp (VND)

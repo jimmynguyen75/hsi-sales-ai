@@ -508,6 +508,8 @@ export interface Quotation {
 
 export interface KpiTarget {
   fiscalYear: number;
+  fyStart: string | null;
+  fyEnd: string | null;
   revenueTarget: number | null;
   grossProfitTarget: number | null;
   newAccountsTarget: number | null;
@@ -515,6 +517,8 @@ export interface KpiTarget {
 
 export interface KpiProgress {
   fiscalYear: number;
+  fyStart: string;
+  fyEnd: string;
   yearElapsed: number; // 0..1
   daysLeft: number;
   target: {

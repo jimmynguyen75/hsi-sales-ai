@@ -27,10 +27,19 @@ const WON_STAGES = ["pink", "closed_won"];
 
 const upsertSchema = z.object({
   fiscalYear: z.number().int().min(2020).max(2100).optional(),
+  fyStart: z.string().optional().nullable(), // ISO date
+  fyEnd: z.string().optional().nullable(),
   revenueTarget: z.number().nonnegative().optional().nullable(),
   grossProfitTarget: z.number().nonnegative().optional().nullable(),
   newAccountsTarget: z.number().int().nonnegative().optional().nullable(),
 });
+
+// Resolve the FY window from stored dates, falling back to Jan 1 – Dec 31.
+function fyWindow(fy: number, target: { fyStart: Date | null; fyEnd: Date | null } | null) {
+  const fyStart = target?.fyStart ?? new Date(fy, 0, 1);
+  const fyEnd = target?.fyEnd ?? new Date(fy + 1, 0, 1);
+  return { fyStart, fyEnd };
+}
 
 // GET /api/kpi — the caller's target for a fiscal year (default: current).
 kpiRouter.get("/", async (req, res, next) => {
@@ -40,7 +49,17 @@ kpiRouter.get("/", async (req, res, next) => {
     const target = await prisma.kpiTarget.findUnique({
       where: { userId_fiscalYear: { userId, fiscalYear: fy } },
     });
-    ok(res, target ?? { fiscalYear: fy, revenueTarget: null, grossProfitTarget: null, newAccountsTarget: null });
+    ok(
+      res,
+      target ?? {
+        fiscalYear: fy,
+        fyStart: null,
+        fyEnd: null,
+        revenueTarget: null,
+        grossProfitTarget: null,
+        newAccountsTarget: null,
+      },
+    );
   } catch (e) {
     next(e);
   }
@@ -53,6 +72,8 @@ kpiRouter.put("/", async (req, res, next) => {
     const input = upsertSchema.parse(req.body);
     const fy = input.fiscalYear ?? currentFY();
     const data = {
+      fyStart: input.fyStart ? new Date(input.fyStart) : null,
+      fyEnd: input.fyEnd ? new Date(input.fyEnd) : null,
       revenueTarget: input.revenueTarget ?? null,
       grossProfitTarget: input.grossProfitTarget ?? null,
       newAccountsTarget: input.newAccountsTarget ?? null,
@@ -73,13 +94,14 @@ kpiRouter.get("/progress", async (req, res, next) => {
   try {
     const userId = (req as AuthedRequest).userId;
     const fy = Number(req.query.fiscalYear) || currentFY();
-    const fyStart = new Date(fy, 0, 1);
-    const fyEnd = new Date(fy + 1, 0, 1);
 
-    const [target, wonDeals, newAccounts] = await Promise.all([
-      prisma.kpiTarget.findUnique({
-        where: { userId_fiscalYear: { userId, fiscalYear: fy } },
-      }),
+    // Load the target first so we know the FY window before counting.
+    const target = await prisma.kpiTarget.findUnique({
+      where: { userId_fiscalYear: { userId, fiscalYear: fy } },
+    });
+    const { fyStart, fyEnd } = fyWindow(fy, target);
+
+    const [wonDeals, newAccounts] = await Promise.all([
       prisma.deal.findMany({
         where: { ownerId: userId, stage: { in: WON_STAGES } },
         select: { value: true, grossProfit: true },
@@ -110,6 +132,8 @@ kpiRouter.get("/progress", async (req, res, next) => {
 
     ok(res, {
       fiscalYear: fy,
+      fyStart: fyStart.toISOString(),
+      fyEnd: fyEnd.toISOString(),
       yearElapsed, // 0..1
       daysLeft: Math.max(0, Math.ceil((fyEnd.getTime() - now.getTime()) / 86_400_000)),
       target: {
@@ -137,8 +161,6 @@ kpiRouter.get("/progress", async (req, res, next) => {
 kpiRouter.get("/all", requireRole("admin"), async (req, res, next) => {
   try {
     const fy = Number(req.query.fiscalYear) || currentFY();
-    const fyStart = new Date(fy, 0, 1);
-    const fyEnd = new Date(fy + 1, 0, 1);
 
     const users = await prisma.user.findMany({
       where: { role: "sales" },
@@ -146,10 +168,12 @@ kpiRouter.get("/all", requireRole("admin"), async (req, res, next) => {
     });
     const rows = await Promise.all(
       users.map(async (u) => {
-        const [target, won, newAccounts] = await Promise.all([
-          prisma.kpiTarget.findUnique({
-            where: { userId_fiscalYear: { userId: u.id, fiscalYear: fy } },
-          }),
+        // Load each rep's target first so newAccounts uses their FY window.
+        const target = await prisma.kpiTarget.findUnique({
+          where: { userId_fiscalYear: { userId: u.id, fiscalYear: fy } },
+        });
+        const { fyStart, fyEnd } = fyWindow(fy, target);
+        const [won, newAccounts] = await Promise.all([
           prisma.deal.findMany({
             where: { ownerId: u.id, stage: { in: WON_STAGES } },
             select: { value: true, grossProfit: true },

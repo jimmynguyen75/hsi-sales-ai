@@ -763,6 +763,9 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
           <div className="flex items-center gap-2">
             <Target className="h-4 w-4 text-amber-500" />
             <div className="text-sm font-semibold">Tiến độ KPI FY{kpi.fiscalYear}</div>
+            <span className="text-[11px] text-slate-400">
+              {formatDate(kpi.fyStart)} – {formatDate(kpi.fyEnd)}
+            </span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-slate-500 border border-slate-200 rounded-md px-2 py-0.5">
