@@ -18,7 +18,6 @@ import {
   Target,
   TrendingUp,
   Users,
-  Activity as ActivityIcon,
   Trophy,
   Shield,
   ArrowRight,
@@ -42,7 +41,6 @@ import {
   relativeTime,
   stageColor,
   stageLabel,
-  healthColor,
 } from "@/lib/format";
 
 // Open = still in play (not pink/gray). Includes legacy names for old deals.
@@ -155,33 +153,6 @@ export function Dashboard() {
     return { order, agg, total };
   }, [deals]);
 
-  // === Open pipeline rows (Đỏ / Vàng / Xanh) ===
-  const stageBreakdown = useMemo(() => {
-    const stages = ["red", "yellow", "green"];
-    return stages.map((stage) => ({
-      stage,
-      count: fullBreakdown.agg[stage].count,
-      value: fullBreakdown.agg[stage].value,
-    }));
-  }, [fullBreakdown]);
-
-  const stageMax = Math.max(1, ...stageBreakdown.map((s) => s.value));
-
-  // === Account health buckets ===
-  const healthBuckets = useMemo(() => {
-    const all = accounts ?? [];
-    const bucket = (score: number | null) => {
-      if (score == null) return "unassessed";
-      if (score >= 75) return "healthy";
-      if (score >= 55) return "watch";
-      if (score >= 35) return "at_risk";
-      return "critical";
-    };
-    const counts = { healthy: 0, watch: 0, at_risk: 0, critical: 0, unassessed: 0 };
-    for (const a of all) counts[bucket(a.healthScore) as keyof typeof counts]++;
-    return counts;
-  }, [accounts]);
-
   // === Recent deals (last 5 by updatedAt) ===
   const recentDeals = useMemo(
     () =>
@@ -243,25 +214,16 @@ export function Dashboard() {
 
   return (
     <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
-      {/* ===== Hero banner ===== */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 via-brand-700 to-indigo-800 px-6 py-6 md:px-8 md:py-7 text-white shadow-lg">
-        {/* decorative circles */}
-        <div className="pointer-events-none absolute -top-16 -right-16 h-56 w-56 rounded-full bg-white/10" />
-        <div className="pointer-events-none absolute -bottom-24 right-24 h-64 w-64 rounded-full bg-white/5" />
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
+      {/* ===== Hero banner — one compact line: greeting + date + CTAs ===== */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 via-brand-700 to-indigo-800 px-6 py-4 text-white shadow-md">
+        <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-white/10" />
+        <div className="relative flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-widest text-blue-200 font-semibold">
-              {todayLabel}
-            </div>
-            <h1 className="mt-1 text-2xl md:text-3xl font-bold flex items-center gap-2">
-              <Sparkles className="h-6 w-6 text-amber-300" />
+            <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-amber-300" />
               {isAdmin ? "Toàn cảnh kinh doanh HSI" : `Chào ${firstName}!`}
             </h1>
-            <p className="mt-1 text-sm text-blue-100 max-w-xl">
-              {isAdmin
-                ? "Pipeline, account health, hoạt động và hiệu suất từng sales — cập nhật realtime."
-                : "Pipeline FY2026 của bạn — theo dõi cơ hội, follow-up và deal sắp chốt."}
-            </p>
+            <div className="mt-0.5 text-xs text-blue-200 capitalize">{todayLabel}</div>
           </div>
           <div className="flex gap-2">
             <Link
@@ -360,78 +322,6 @@ export function Dashboard() {
           </div>
         </CardBody>
       </Card>
-
-      {/* ===== Charts row ===== */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Open pipeline by color */}
-        <Card>
-          <CardBody className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ActivityIcon className="h-4 w-4 text-brand-600" />
-                <div className="text-sm font-semibold">Pipeline đang mở theo màu</div>
-              </div>
-              <Link
-                to="/pipeline"
-                className="text-[11px] text-brand-600 hover:underline inline-flex items-center gap-0.5 font-medium"
-              >
-                Mở pipeline <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-            <div className="space-y-3.5">
-              {stageBreakdown.map((s) => (
-                <div key={s.stage}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <Badge className={stageColor(s.stage)}>{stageLabel(s.stage)}</Badge>
-                    <div className="text-slate-600 tabular-nums font-medium">
-                      {s.count} deals · {formatVND(s.value)}
-                    </div>
-                  </div>
-                  <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className={cn("h-full rounded-full transition-all", STAGE_FILL[s.stage])}
-                      style={{ width: `${Math.max(2, (s.value / stageMax) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-              {stageBreakdown.every((s) => s.count === 0) && (
-                <div className="py-6 text-center text-xs text-slate-400">
-                  Chưa có deal đang mở.
-                </div>
-              )}
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* Account health */}
-        <Card>
-          <CardBody className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ActivityIcon className="h-4 w-4 text-brand-600" />
-                <div className="text-sm font-semibold">Account health</div>
-              </div>
-              <Link
-                to="/health-dashboard"
-                className="text-[11px] text-brand-600 hover:underline inline-flex items-center gap-0.5 font-medium"
-              >
-                Chi tiết <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-            <div className="grid grid-cols-5 gap-2 pt-1">
-              <HealthBucket label="Healthy" count={healthBuckets.healthy} colorScore={80} />
-              <HealthBucket label="Watch" count={healthBuckets.watch} colorScore={60} />
-              <HealthBucket label="At risk" count={healthBuckets.at_risk} colorScore={40} />
-              <HealthBucket label="Critical" count={healthBuckets.critical} colorScore={20} />
-              <HealthBucket label="Chưa đánh giá" count={healthBuckets.unassessed} colorScore={null} />
-            </div>
-            {(accounts?.length ?? 0) === 0 && (
-              <div className="py-6 text-center text-xs text-slate-400">Chưa có account.</div>
-            )}
-          </CardBody>
-        </Card>
-      </div>
 
       {/* ===== Lists row ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -696,30 +586,6 @@ function KPI({
   );
 }
 
-function HealthBucket({
-  label,
-  count,
-  colorScore,
-}: {
-  label: string;
-  count: number;
-  colorScore: number | null;
-}) {
-  return (
-    <div className="text-center">
-      <div
-        className={cn(
-          "inline-flex h-14 w-14 items-center justify-center rounded-full text-base font-bold border-2 transition hover:scale-105",
-          healthColor(colorScore),
-        )}
-      >
-        {count}
-      </div>
-      <div className="mt-1.5 text-[10px] font-medium text-slate-600">{label}</div>
-    </div>
-  );
-}
-
 // ===========================================================================
 // KPI progress vs fiscal-year targets.
 // ===========================================================================
@@ -802,16 +668,6 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
               yearElapsed={kpi.yearElapsed}
               tone="blue"
               money
-              forecast={kpi.pipeline.weightedForecast}
-              extra={
-                <>
-                  <ExtraStat label="Pipeline mở" value={formatVNDShort(kpi.pipeline.openValue)} />
-                  <ExtraStat
-                    label="Forecast (weighted)"
-                    value={`+${formatVNDShort(kpi.pipeline.weightedForecast)}`}
-                  />
-                </>
-              }
             />
           )}
           {kpi.target.grossProfit != null && (
@@ -845,27 +701,24 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
 // one design system: tinted gradient card + gradient icon chip + solid bar.
 const KPI_PROGRESS_TONES: Record<
   string,
-  { card: string; chip: string; bar: string; barSoft: string; text: string }
+  { card: string; chip: string; bar: string; text: string }
 > = {
   blue: {
     card: "bg-gradient-to-br from-blue-50/70 to-white border-blue-100",
     chip: "from-blue-500 to-blue-600 shadow-blue-200",
     bar: "bg-blue-500",
-    barSoft: "bg-blue-200",
     text: "text-blue-700",
   },
   emerald: {
     card: "bg-gradient-to-br from-emerald-50/70 to-white border-emerald-100",
     chip: "from-emerald-500 to-teal-600 shadow-emerald-200",
     bar: "bg-emerald-500",
-    barSoft: "bg-emerald-200",
     text: "text-emerald-700",
   },
   violet: {
     card: "bg-gradient-to-br from-violet-50/70 to-white border-violet-100",
     chip: "from-violet-500 to-purple-600 shadow-violet-200",
     bar: "bg-violet-500",
-    barSoft: "bg-violet-200",
     text: "text-violet-700",
   },
 };
@@ -901,8 +754,6 @@ function KpiProgressCard({
   yearElapsed,
   tone,
   money,
-  forecast,
-  extra,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -911,8 +762,6 @@ function KpiProgressCard({
   yearElapsed: number;
   tone: keyof typeof KPI_PROGRESS_TONES;
   money?: boolean;
-  forecast?: number;
-  extra?: React.ReactNode;
 }) {
   const t = KPI_PROGRESS_TONES[tone];
   const pct = target > 0 ? (achieved / target) * 100 : 0;
@@ -921,15 +770,10 @@ function KpiProgressCard({
   const fmt = (n: number) => (money ? formatVND(n) : n.toLocaleString("vi-VN"));
   const fmtShort = (n: number) => (money ? formatVNDShort(n) : n.toLocaleString("vi-VN"));
 
-  // Pacing: compare achieved% against year-elapsed% (5% grace margin).
-  const elapsedPct = yearElapsed * 100;
-  const onTrack = pct >= elapsedPct - 5;
+  // Pacing feeds the badge only: on track when achieved% keeps up with the
+  // share of the fiscal year already elapsed (5% grace margin).
+  const onTrack = pct >= yearElapsed * 100 - 5;
   const done = pct >= 100;
-
-  // Potential segment: if every open deal closed at its weighted forecast,
-  // how much further would the bar reach? Rendered as a lighter tint.
-  const forecastPct =
-    forecast && target > 0 ? Math.min(100 - Math.min(100, pct), (forecast / target) * 100) : 0;
 
   return (
     <div className={cn("rounded-xl border p-4", t.card)}>
@@ -968,16 +812,8 @@ function KpiProgressCard({
         </div>
       </div>
 
-      {/* Progress bar: solid = achieved, tint = weighted forecast potential,
-          dark tick = today's position in the fiscal year. */}
+      {/* Progress bar */}
       <div className="relative h-2.5 rounded-full bg-white ring-1 ring-inset ring-slate-200/80 overflow-hidden">
-        {forecastPct > 0 && (
-          <div
-            className={cn("absolute inset-y-0 left-0 rounded-full", t.barSoft)}
-            style={{ width: `${Math.min(100, pct + forecastPct)}%` }}
-            title={`Nếu chốt hết pipeline (weighted): ~${Math.round(pct + forecastPct)}%`}
-          />
-        )}
         <div
           className={cn(
             "absolute inset-y-0 left-0 rounded-full transition-all",
@@ -985,22 +821,6 @@ function KpiProgressCard({
           )}
           style={{ width: `${Math.min(100, pct)}%` }}
         />
-        <div
-          className="absolute top-0 h-full w-[2px] bg-slate-600"
-          style={{
-            left: `${Math.min(99, elapsedPct)}%`,
-            boxShadow: "0 0 0 1px rgba(255,255,255,0.9)",
-          }}
-          title={`Hôm nay — đã qua ${Math.round(elapsedPct)}% kỳ`}
-        />
-      </div>
-      <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
-        <span>0%</span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-[2px] bg-slate-600 rounded" />
-          hôm nay {Math.round(elapsedPct)}%
-        </span>
-        <span>100%</span>
       </div>
 
       {/* Gap message */}
@@ -1026,21 +846,6 @@ function KpiProgressCard({
           </span>
         </div>
       )}
-
-      {extra && (
-        <div className="mt-2.5 border-t border-slate-200/70 pt-2.5 grid grid-cols-2 gap-2">
-          {extra}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExtraStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className="text-xs font-medium text-slate-700 tabular-nums">{value}</div>
     </div>
   );
 }
