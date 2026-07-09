@@ -534,6 +534,6 @@ export interface KpiProgress {
   };
   pipeline: {
     openValue: number;
-    forecast: number; // OPP Vàng + OPP Hồng (company rule)
+    forecast: number; // OPP Vàng + OPP Xanh (company rule)
   };
 }

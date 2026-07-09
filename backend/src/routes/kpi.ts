@@ -111,14 +111,14 @@ kpiRouter.get("/progress", async (req, res, next) => {
       }),
     ]);
 
-    // Open pipeline + company forecast rule: OPP Vàng (sắp ký) + Hồng (đã ký).
+    // Open pipeline + company forecast rule: OPP Vàng + OPP Xanh.
     const [openDeals, forecastDeals] = await Promise.all([
       prisma.deal.findMany({
         where: { ownerId: userId, stage: { in: ["red", "yellow", "green"] } },
         select: { value: true },
       }),
       prisma.deal.findMany({
-        where: { ownerId: userId, stage: { in: ["yellow", "pink", "closed_won"] } },
+        where: { ownerId: userId, stage: { in: ["yellow", "green"] } },
         select: { value: true },
       }),
     ]);

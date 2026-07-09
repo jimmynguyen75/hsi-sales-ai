@@ -175,9 +175,9 @@ export function PipelineView() {
   const stats = useMemo(() => {
     const open = filteredDeals.filter((d) => OPEN_STAGES.includes(normalizeStage(d.stage)));
     const totalValue = open.reduce((s, d) => s + (d.value ?? 0), 0);
-    // Company forecast rule: OPP Vàng (sắp ký) + OPP Hồng (đã ký).
+    // Company forecast rule: OPP Vàng + OPP Xanh.
     const forecast = filteredDeals
-      .filter((d) => ["yellow", "pink"].includes(normalizeStage(d.stage)))
+      .filter((d) => ["yellow", "green"].includes(normalizeStage(d.stage)))
       .reduce((s, d) => s + (d.value ?? 0), 0);
     const won = filteredDeals
       .filter((d) => normalizeStage(d.stage) === "pink")
@@ -242,7 +242,7 @@ export function PipelineView() {
           label="Forecast"
           value={formatVNDShort(stats.forecast)}
           tone="violet"
-          hint="OPP Vàng + OPP Hồng"
+          hint="OPP Vàng + OPP Xanh"
         />
         <StatCard
           icon={<Trophy className="h-5 w-5" />}

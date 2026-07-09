@@ -115,13 +115,13 @@ export function Dashboard() {
   });
 
   // === KPIs ===
-  // Forecast follows the company rule: OPP Vàng (sắp ký) + OPP Hồng (đã ký).
+  // Forecast follows the company rule: OPP Vàng + OPP Xanh.
   const kpis = useMemo(() => {
     const all = deals ?? [];
     const open = all.filter((d) => OPEN_STAGES.includes(d.stage));
     const openValue = open.reduce((s, d) => s + (d.value ?? 0), 0);
     const forecast = all
-      .filter((d) => ["yellow", "pink"].includes(colorOf(d.stage)))
+      .filter((d) => ["yellow", "green"].includes(colorOf(d.stage)))
       .reduce((s, d) => s + (d.value ?? 0), 0);
     return { openCount: open.length, openValue, forecast };
   }, [deals]);
@@ -239,7 +239,7 @@ export function Dashboard() {
           <HeroStat
             label={`Forecast FY${FY}`}
             value={formatVNDShort(kpis.forecast)}
-            hint="OPP Vàng + OPP Hồng"
+            hint="OPP Vàng + OPP Xanh"
           />
         </div>
       </div>
