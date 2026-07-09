@@ -1,9 +1,10 @@
 /**
  * Dashboard — landing page after login.
  *
- * Presentation-grade layout: gradient hero banner, KPI cards with tone
- * gradients, OPP-color pipeline breakdown (Đỏ/Vàng/Xanh/Hồng/Xám) with a
- * stacked distribution bar, account-health rings, and activity lists.
+ * Deliberately few boxes: the hero banner carries the 4 headline numbers
+ * (pipeline / forecast / signed / accounts) as an inline stat row, KPI
+ * progress is ONE card with 3 divided columns (not 3 nested cards), then
+ * the OPP color distribution bar and two activity lists.
  *
  * Same component for sales and admin: the backend already scopes /deals
  * + /accounts to the caller's role, so all the numbers automatically mean
@@ -17,7 +18,6 @@ import {
   Briefcase,
   Target,
   TrendingUp,
-  Users,
   Trophy,
   Shield,
   ArrowRight,
@@ -214,8 +214,8 @@ export function Dashboard() {
 
   return (
     <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
-      {/* ===== Hero banner — one compact line: greeting + date + CTAs ===== */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 via-brand-700 to-indigo-800 px-6 py-4 text-white shadow-md">
+      {/* ===== Hero banner — greeting + CTAs + the 4 headline numbers ===== */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 via-brand-700 to-indigo-800 px-6 py-5 text-white shadow-md">
         <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-white/10" />
         <div className="relative flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -240,42 +240,33 @@ export function Dashboard() {
             </Link>
           </div>
         </div>
+        {/* Headline numbers live inside the hero — no separate card row needed */}
+        <div className="relative mt-4 grid grid-cols-2 md:grid-cols-4 gap-y-3 border-t border-white/15 pt-4 md:divide-x md:divide-white/15">
+          <HeroStat
+            label="Pipeline đang mở"
+            value={formatVNDShort(kpis.openValue)}
+            hint={`${kpis.openCount} cơ hội`}
+          />
+          <HeroStat
+            label="Forecast (weighted)"
+            value={formatVNDShort(kpis.weighted)}
+            hint="giá trị × xác suất"
+          />
+          <HeroStat
+            label="Đã ký hợp đồng"
+            value={formatVNDShort(kpis.wonValue)}
+            hint={`${kpis.wonCount} hợp đồng`}
+          />
+          <HeroStat
+            label={isAdmin ? "Team accounts" : "Khách hàng"}
+            value={kpis.accountCount.toString()}
+            hint="đang quản lý"
+          />
+        </div>
       </div>
 
       {/* ===== KPI progress vs targets ===== */}
       {kpi && <KpiProgressSection kpi={kpi} />}
-
-      {/* ===== KPI strip ===== */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPI
-          icon={<Briefcase className="h-5 w-5" />}
-          label="Pipeline đang mở"
-          value={formatVNDShort(kpis.openValue)}
-          hint={`${kpis.openCount} cơ hội đang theo đuổi`}
-          tone="blue"
-        />
-        <KPI
-          icon={<TrendingUp className="h-5 w-5" />}
-          label="Forecast (weighted)"
-          value={formatVNDShort(kpis.weighted)}
-          hint="Σ giá trị × xác suất thành công"
-          tone="violet"
-        />
-        <KPI
-          icon={<Trophy className="h-5 w-5" />}
-          label="Đã ký hợp đồng"
-          value={formatVNDShort(kpis.wonValue)}
-          hint={`${kpis.wonCount} hợp đồng FY2026`}
-          tone="emerald"
-        />
-        <KPI
-          icon={<Users className="h-5 w-5" />}
-          label={isAdmin ? "Team accounts" : "Khách hàng của bạn"}
-          value={kpis.accountCount.toString()}
-          hint="accounts đang quản lý"
-          tone="amber"
-        />
-      </div>
 
       {/* ===== OPP distribution bar ===== */}
       <Card className="overflow-hidden">
@@ -526,63 +517,16 @@ export function Dashboard() {
   );
 }
 
-const KPI_TONES: Record<
-  string,
-  { card: string; icon: string; value: string }
-> = {
-  blue: {
-    card: "bg-gradient-to-br from-blue-50 to-white border-blue-100",
-    icon: "bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-md shadow-blue-200",
-    value: "text-blue-900",
-  },
-  violet: {
-    card: "bg-gradient-to-br from-violet-50 to-white border-violet-100",
-    icon: "bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-md shadow-violet-200",
-    value: "text-violet-900",
-  },
-  emerald: {
-    card: "bg-gradient-to-br from-emerald-50 to-white border-emerald-100",
-    icon: "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-200",
-    value: "text-emerald-900",
-  },
-  amber: {
-    card: "bg-gradient-to-br from-amber-50 to-white border-amber-100",
-    icon: "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200",
-    value: "text-amber-900",
-  },
-};
-
-function KPI({
-  icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  hint?: string;
-  tone: keyof typeof KPI_TONES;
-}) {
-  const t = KPI_TONES[tone];
+// One headline number inside the hero banner (white-on-gradient).
+function HeroStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <Card className={cn("border transition hover:shadow-md", t.card)}>
-      <CardBody className="p-4 flex items-start gap-3">
-        <div className={cn("h-11 w-11 shrink-0 rounded-xl grid place-items-center", t.icon)}>
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <div className="text-[11px] font-medium text-slate-500 truncate uppercase tracking-wide">
-            {label}
-          </div>
-          <div className={cn("text-2xl font-bold tabular-nums leading-tight truncate", t.value)}>
-            {value}
-          </div>
-          {hint && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{hint}</div>}
-        </div>
-      </CardBody>
-    </Card>
+    <div className="md:px-6 md:first:pl-0">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-blue-200 truncate">
+        {label}
+      </div>
+      <div className="text-xl font-bold tabular-nums leading-tight">{value}</div>
+      {hint && <div className="text-[11px] text-blue-200/80 truncate">{hint}</div>}
+    </div>
   );
 }
 
@@ -629,20 +573,14 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
 
   return (
     <Card className="overflow-hidden">
-      <CardBody className="space-y-4">
+      <CardBody className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white grid place-items-center shadow-md shadow-amber-200">
-              <Target className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-slate-900">
-                Tiến độ KPI FY{kpi.fiscalYear}
-              </div>
-              <div className="text-[11px] text-slate-400">
-                {formatDate(kpi.fyStart)} – {formatDate(kpi.fyEnd)} · đã qua {elapsedPct}% kỳ
-              </div>
-            </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Target className="h-4 w-4 text-brand-600" />
+            <div className="text-sm font-semibold">Tiến độ KPI FY{kpi.fiscalYear}</div>
+            <span className="text-[11px] text-slate-400">
+              {formatDate(kpi.fyStart)} – {formatDate(kpi.fyEnd)} · đã qua {elapsedPct}% kỳ
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600">
@@ -658,7 +596,8 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* 3 divided columns inside ONE card — not 3 nested boxes */}
+        <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100">
           {kpi.target.revenue != null && (
             <KpiProgressCard
               icon={<TrendingUp className="h-4 w-4" />}
@@ -697,30 +636,12 @@ function KpiProgressSection({ kpi }: { kpi: KpiProgress }) {
   );
 }
 
-// Tone treatments match the Dashboard KPI cards so the whole page reads as
-// one design system: tinted gradient card + gradient icon chip + solid bar.
-const KPI_PROGRESS_TONES: Record<
-  string,
-  { card: string; chip: string; bar: string; text: string }
-> = {
-  blue: {
-    card: "bg-gradient-to-br from-blue-50/70 to-white border-blue-100",
-    chip: "from-blue-500 to-blue-600 shadow-blue-200",
-    bar: "bg-blue-500",
-    text: "text-blue-700",
-  },
-  emerald: {
-    card: "bg-gradient-to-br from-emerald-50/70 to-white border-emerald-100",
-    chip: "from-emerald-500 to-teal-600 shadow-emerald-200",
-    bar: "bg-emerald-500",
-    text: "text-emerald-700",
-  },
-  violet: {
-    card: "bg-gradient-to-br from-violet-50/70 to-white border-violet-100",
-    chip: "from-violet-500 to-purple-600 shadow-violet-200",
-    bar: "bg-violet-500",
-    text: "text-violet-700",
-  },
+// Flat columns share one card, so each tone is just an accent color for the
+// small icon, the big percentage, and the progress bar.
+const KPI_PROGRESS_TONES: Record<string, { bar: string; text: string }> = {
+  blue: { bar: "bg-blue-500", text: "text-blue-700" },
+  emerald: { bar: "bg-emerald-500", text: "text-emerald-700" },
+  violet: { bar: "bg-violet-500", text: "text-violet-700" },
 };
 
 function PacingBadge({ done, onTrack }: { done: boolean; onTrack: boolean }) {
@@ -776,34 +697,27 @@ function KpiProgressCard({
   const done = pct >= 100;
 
   return (
-    <div className={cn("rounded-xl border p-4", t.card)}>
-      {/* Header: icon chip + label + pacing badge */}
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <div
-            className={cn(
-              "h-8 w-8 shrink-0 rounded-lg grid place-items-center bg-gradient-to-br text-white shadow-md",
-              t.chip,
-            )}
-          >
-            {icon}
-          </div>
-          <span className="text-[13px] font-medium text-slate-700 truncate">{label}</span>
+    <div className="py-3 first:pt-0 last:pb-0 md:py-0 md:px-6 md:first:pl-0 md:last:pr-0">
+      {/* Header: small colored icon + label + pacing badge */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={cn("shrink-0", t.text)}>{icon}</span>
+          <span className="text-[13px] font-medium text-slate-600 truncate">{label}</span>
         </div>
         <PacingBadge done={done} onTrack={onTrack} />
       </div>
 
       {/* Achieved vs target + big percentage */}
-      <div className="flex items-end justify-between gap-2 mb-2.5">
+      <div className="flex items-end justify-between gap-2 mb-2">
         <div className="min-w-0">
-          <div className="text-[22px] leading-7 font-bold text-slate-900 tabular-nums truncate">
+          <div className="text-xl leading-7 font-bold text-slate-900 tabular-nums truncate">
             {fmtShort(achieved)}
           </div>
           <div className="text-[11px] text-slate-500">mục tiêu {fmtShort(target)}</div>
         </div>
         <div
           className={cn(
-            "text-[26px] leading-8 font-bold tabular-nums shrink-0",
+            "text-2xl leading-8 font-bold tabular-nums shrink-0",
             done ? "text-emerald-600" : t.text,
           )}
         >
@@ -813,19 +727,16 @@ function KpiProgressCard({
       </div>
 
       {/* Progress bar */}
-      <div className="relative h-2.5 rounded-full bg-white ring-1 ring-inset ring-slate-200/80 overflow-hidden">
+      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
         <div
-          className={cn(
-            "absolute inset-y-0 left-0 rounded-full transition-all",
-            done ? "bg-emerald-500" : t.bar,
-          )}
+          className={cn("h-full rounded-full transition-all", done ? "bg-emerald-500" : t.bar)}
           style={{ width: `${Math.min(100, pct)}%` }}
         />
       </div>
 
       {/* Gap message */}
       {done ? (
-        <div className="mt-2 flex items-center gap-1.5 text-[13px] text-emerald-600 font-medium">
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
           <Flag className="h-3.5 w-3.5 shrink-0" />
           {achieved > target ? (
             <>Vượt mục tiêu +{fmtShort(achieved - target)}</>
@@ -836,8 +747,8 @@ function KpiProgressCard({
       ) : (
         <div
           className={cn(
-            "mt-2 flex items-center gap-1.5 text-[13px]",
-            onTrack ? "text-slate-600" : "text-rose-600",
+            "mt-2 flex items-center gap-1.5 text-xs",
+            onTrack ? "text-slate-500" : "text-rose-600",
           )}
         >
           <Flag className="h-3.5 w-3.5 shrink-0" />
