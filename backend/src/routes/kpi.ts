@@ -111,16 +111,19 @@ kpiRouter.get("/progress", async (req, res, next) => {
       }),
     ]);
 
-    // Open pipeline for the forecast line (weighted by probability).
-    const openDeals = await prisma.deal.findMany({
-      where: { ownerId: userId, stage: { in: ["red", "yellow", "green"] } },
-      select: { value: true, probability: true },
-    });
+    // Open pipeline + company forecast rule: OPP Vàng (sắp ký) + Hồng (đã ký).
+    const [openDeals, forecastDeals] = await Promise.all([
+      prisma.deal.findMany({
+        where: { ownerId: userId, stage: { in: ["red", "yellow", "green"] } },
+        select: { value: true },
+      }),
+      prisma.deal.findMany({
+        where: { ownerId: userId, stage: { in: ["yellow", "pink", "closed_won"] } },
+        select: { value: true },
+      }),
+    ]);
     const openValue = openDeals.reduce((s, d) => s + (d.value ?? 0), 0);
-    const weightedForecast = openDeals.reduce(
-      (s, d) => s + ((d.value ?? 0) * (d.probability ?? 0)) / 100,
-      0,
-    );
+    const forecast = forecastDeals.reduce((s, d) => s + (d.value ?? 0), 0);
 
     const revenueAchieved = wonDeals.reduce((s, d) => s + (d.value ?? 0), 0);
     const grossProfitAchieved = wonDeals.reduce((s, d) => s + (d.grossProfit ?? 0), 0);
@@ -149,7 +152,7 @@ kpiRouter.get("/progress", async (req, res, next) => {
       },
       pipeline: {
         openValue,
-        weightedForecast,
+        forecast,
       },
     });
   } catch (e) {

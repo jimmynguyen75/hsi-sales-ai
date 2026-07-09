@@ -30,7 +30,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Account, Activity, Deal, KpiProgress } from "@/lib/types";
+import type { Activity, Deal, KpiProgress } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
@@ -99,10 +99,6 @@ export function Dashboard() {
     queryKey: ["deals", { vendor: "" }], // share cache key with PipelineView
     queryFn: () => api.get<Deal[]>("/deals"),
   });
-  const { data: accounts } = useQuery({
-    queryKey: ["accounts", { q: "", industry: "", minHealth: "" }],
-    queryFn: () => api.get<Account[]>("/accounts"),
-  });
   const { data: activities } = useQuery({
     queryKey: ["activities", "all"],
     queryFn: () => api.get<Activity[]>("/activities"),
@@ -119,25 +115,16 @@ export function Dashboard() {
   });
 
   // === KPIs ===
+  // Forecast follows the company rule: OPP Vàng (sắp ký) + OPP Hồng (đã ký).
   const kpis = useMemo(() => {
     const all = deals ?? [];
     const open = all.filter((d) => OPEN_STAGES.includes(d.stage));
     const openValue = open.reduce((s, d) => s + (d.value ?? 0), 0);
-    const weighted = open.reduce(
-      (s, d) => s + ((d.value ?? 0) * (d.probability ?? 0)) / 100,
-      0,
-    );
-    const won = all.filter((d) => colorOf(d.stage) === "pink");
-    const wonValue = won.reduce((s, d) => s + (d.value ?? 0), 0);
-    return {
-      openCount: open.length,
-      openValue,
-      weighted,
-      wonCount: won.length,
-      wonValue,
-      accountCount: accounts?.length ?? 0,
-    };
-  }, [deals, accounts]);
+    const forecast = all
+      .filter((d) => ["yellow", "pink"].includes(colorOf(d.stage)))
+      .reduce((s, d) => s + (d.value ?? 0), 0);
+    return { openCount: open.length, openValue, forecast };
+  }, [deals]);
 
   // === Full 5-color breakdown for the distribution bar ===
   const fullBreakdown = useMemo(() => {
@@ -240,27 +227,19 @@ export function Dashboard() {
             </Link>
           </div>
         </div>
-        {/* Headline numbers live inside the hero — no separate card row needed */}
-        <div className="relative mt-4 grid grid-cols-2 md:grid-cols-4 gap-y-3 border-t border-white/15 pt-4 md:divide-x md:divide-white/15">
+        {/* Headline numbers live inside the hero — no separate card row needed.
+            Signed revenue + new accounts are NOT repeated here: they already
+            appear in the KPI progress card right below. */}
+        <div className="relative mt-4 grid grid-cols-2 gap-y-3 border-t border-white/15 pt-4 divide-x divide-white/15">
           <HeroStat
             label="Pipeline đang mở"
             value={formatVNDShort(kpis.openValue)}
-            hint={`${kpis.openCount} cơ hội`}
+            hint={`${kpis.openCount} cơ hội đang theo đuổi`}
           />
           <HeroStat
-            label="Forecast (weighted)"
-            value={formatVNDShort(kpis.weighted)}
-            hint="giá trị × xác suất"
-          />
-          <HeroStat
-            label="Đã ký hợp đồng"
-            value={formatVNDShort(kpis.wonValue)}
-            hint={`${kpis.wonCount} hợp đồng`}
-          />
-          <HeroStat
-            label={isAdmin ? "Team accounts" : "Khách hàng"}
-            value={kpis.accountCount.toString()}
-            hint="đang quản lý"
+            label={`Forecast FY${FY}`}
+            value={formatVNDShort(kpis.forecast)}
+            hint="OPP Vàng + OPP Hồng"
           />
         </div>
       </div>
@@ -520,7 +499,7 @@ export function Dashboard() {
 // One headline number inside the hero banner (white-on-gradient).
 function HeroStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="md:px-6 md:first:pl-0">
+    <div className="px-6 first:pl-0">
       <div className="text-[10px] font-medium uppercase tracking-wider text-blue-200 truncate">
         {label}
       </div>

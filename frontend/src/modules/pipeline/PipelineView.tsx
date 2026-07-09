@@ -10,7 +10,7 @@
  * (admin only, matching backend RBAC). The dialog is hoisted to this
  * component so one mount handles every card.
  *
- * Top bar: total pipeline value (sum of open deals), weighted forecast
+ * Top bar: total pipeline value (sum of open deals), forecast (Vàng + Hồng)
  * (sum of value × probability/100 for open deals), plus vendor/owner filters.
  * "Open" = everything except closed_won / closed_lost.
  */
@@ -175,14 +175,14 @@ export function PipelineView() {
   const stats = useMemo(() => {
     const open = filteredDeals.filter((d) => OPEN_STAGES.includes(normalizeStage(d.stage)));
     const totalValue = open.reduce((s, d) => s + (d.value ?? 0), 0);
-    const weighted = open.reduce(
-      (s, d) => s + ((d.value ?? 0) * (d.probability ?? 0)) / 100,
-      0,
-    );
+    // Company forecast rule: OPP Vàng (sắp ký) + OPP Hồng (đã ký).
+    const forecast = filteredDeals
+      .filter((d) => ["yellow", "pink"].includes(normalizeStage(d.stage)))
+      .reduce((s, d) => s + (d.value ?? 0), 0);
     const won = filteredDeals
       .filter((d) => normalizeStage(d.stage) === "pink")
       .reduce((s, d) => s + (d.value ?? 0), 0);
-    return { openCount: open.length, totalValue, weighted, won };
+    return { openCount: open.length, totalValue, forecast, won };
   }, [filteredDeals]);
 
   return (
@@ -239,10 +239,10 @@ export function PipelineView() {
         />
         <StatCard
           icon={<TrendingUp className="h-5 w-5" />}
-          label="Forecast (weighted)"
-          value={formatVNDShort(stats.weighted)}
+          label="Forecast"
+          value={formatVNDShort(stats.forecast)}
           tone="violet"
-          hint="Σ (giá trị × xác suất)"
+          hint="OPP Vàng + OPP Hồng"
         />
         <StatCard
           icon={<Trophy className="h-5 w-5" />}
