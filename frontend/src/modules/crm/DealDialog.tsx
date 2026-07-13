@@ -59,6 +59,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
   const [title, setTitle] = useState("");
   const [stage, setStage] = useState("red");
   const [value, setValue] = useState("");
+  const [grossProfit, setGrossProfit] = useState("");
   const [probability, setProbability] = useState("");
   const [vendor, setVendor] = useState("");
   const [expectedClose, setExpectedClose] = useState("");
@@ -80,6 +81,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
     // Legacy stages get mapped so old deals load with a valid color option.
     setStage(LEGACY_MAP[deal?.stage ?? ""] ?? deal?.stage ?? "red");
     setValue(deal?.value != null ? String(deal.value) : "");
+    setGrossProfit(deal?.grossProfit != null ? String(deal.grossProfit) : "");
     setProbability(deal?.probability != null ? String(deal.probability) : "");
     setVendor(deal?.vendor ?? "");
     setExpectedClose(toDateInput(deal?.expectedClose));
@@ -99,6 +101,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
         title: title.trim(),
         stage,
         value: value ? Number(value) : null,
+        grossProfit: grossProfit ? Number(grossProfit) : null,
         probability: probability ? Number(probability) : null,
         vendor: vendor || null,
         expectedClose: isoClose,
@@ -188,6 +191,19 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
               />
             </div>
             <div>
+              <Label>Lãi gộp — LG (VND)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1000000}
+                value={grossProfit}
+                onChange={(e) => setGrossProfit(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
               <Label>Probability (%)</Label>
               <Input
                 type="number"
@@ -198,14 +214,14 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
                 placeholder="0–100"
               />
             </div>
-          </div>
-          <div>
-            <Label>Expected close</Label>
-            <Input
-              type="date"
-              value={expectedClose}
-              onChange={(e) => setExpectedClose(e.target.value)}
-            />
+            <div>
+              <Label>Expected close</Label>
+              <Input
+                type="date"
+                value={expectedClose}
+                onChange={(e) => setExpectedClose(e.target.value)}
+              />
+            </div>
           </div>
           {canReassign && (
             <div>

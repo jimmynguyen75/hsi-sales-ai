@@ -126,7 +126,7 @@ dealsRouter.put("/:id", async (req, res, next) => {
     const changed = diffSummary(
       existing as unknown as Record<string, unknown>,
       deal as unknown as Record<string, unknown>,
-      ["title", "stage", "value", "probability", "vendor", "expectedClose"],
+      ["title", "stage", "value", "grossProfit", "probability", "vendor", "expectedClose"],
     );
     const isStatus = input.stage && input.stage !== existing.stage;
     // Reassign gets its own audit action so it's easy to spot in the log.
