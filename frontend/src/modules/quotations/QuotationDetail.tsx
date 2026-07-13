@@ -496,27 +496,21 @@ export function QuotationDetail() {
                 <th className="text-left px-3 py-2 font-medium">Vendor</th>
                 <th className="text-right px-3 py-2 font-medium">SL</th>
                 <th className="text-right px-3 py-2 font-medium">Đơn giá</th>
+                <th className="text-right px-3 py-2 font-medium">VAT %</th>
+                <th className="text-right px-3 py-2 font-medium">VAT</th>
                 <th
                   className="text-right px-3 py-2 font-medium"
-                  title="Markup. Đơn giá sau margin = Đơn giá × (1 + margin%)."
-                >
-                  Margin %
-                </th>
-                <th
-                  className="text-right px-3 py-2 font-medium"
-                  title="Pre-VAT total = SL × Đơn giá × (1 + margin%)"
+                  title="Chưa VAT = SL × Đơn giá"
                 >
                   Thành tiền
                 </th>
-                <th className="text-right px-3 py-2 font-medium">VAT %</th>
-                <th className="text-right px-3 py-2 font-medium">VAT</th>
                 <th className="print:hidden"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {localItems.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-400">
+                  <td colSpan={9} className="px-3 py-8 text-center text-sm text-slate-400">
                     Chưa có line item. Thêm từ catalog hoặc để AI gợi ý.
                   </td>
                 </tr>
@@ -622,85 +616,6 @@ export function QuotationDetail() {
                     })()}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Gross margin %. Editing margin updates Đơn giá in
-                        place — the implicit cost stays put:
-                          cost          = currentUnit × (1 - oldMargin/100)
-                          newUnit       = cost / (1 - newMargin/100)
-                        That way the "margin %" column directly drives the
-                        Đơn giá number; Thành tiền = qty × Đơn giá visibly. */}
-                    {(() => {
-                      const margin = it.margin ?? 0;
-                      const color =
-                        margin >= 20
-                          ? "text-emerald-700"
-                          : margin >= 10
-                            ? "text-amber-700"
-                            : margin >= 0
-                              ? "text-orange-700"
-                              : "text-rose-700";
-                      const applyMargin = (newMargin: number) => {
-                        const oldMargin = it.margin ?? 0;
-                        // Back out the implicit cost from the current sell
-                        // price + old margin, then re-price under the new
-                        // margin. Defensive divisor check below.
-                        const implicitCost = Math.round(
-                          it.unitPrice * (1 - oldMargin / 100),
-                        );
-                        const divisor = 1 - newMargin / 100;
-                        const newUnit =
-                          divisor > 0.0001
-                            ? Math.round(implicitCost / divisor)
-                            : it.unitPrice;
-                        updateItem(it.id, {
-                          margin: newMargin,
-                          unitPrice: newUnit,
-                        });
-                      };
-                      return (
-                        <div className="inline-flex items-center gap-0.5 justify-end">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={
-                              it.margin == null || it.margin === 0
-                                ? ""
-                                : margin.toString()
-                            }
-                            onChange={(e) => {
-                              const cleaned = e.target.value.replace(
-                                /[^\d.\-]/g,
-                                "",
-                              );
-                              if (cleaned === "" || cleaned === "-" || cleaned === ".") {
-                                applyMargin(0);
-                                return;
-                              }
-                              const m = parseFloat(cleaned);
-                              if (Number.isNaN(m)) return;
-                              if (m >= 100) return; // sell would diverge
-                              if (m <= -1000) return; // sanity bound
-                              applyMargin(m);
-                            }}
-                            placeholder="0"
-                            title="Gross margin %. Khi gõ, Đơn giá tự cập nhật để cộng đúng margin% lên cost ngầm định. Thành tiền = SL × Đơn giá."
-                            className={`w-14 text-right tabular-nums text-sm font-medium bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 ${color}`}
-                          />
-                          <span className={`text-sm ${color}`}>%</span>
-                        </div>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-3 py-2 text-right font-medium text-slate-900 whitespace-nowrap">
-                    {/* Thành tiền displayed in the row's own currency.
-                        formatVND adds a fixed "₫" so we render manually
-                        with the line's currency suffix instead. */}
-                    {(() => {
-                      const cur = it.currency ?? q.currency ?? "VND";
-                      const sym = cur === "VND" ? "₫" : cur;
-                      return `${Math.round(it.lineTotal).toLocaleString("vi-VN")} ${sym}`;
-                    })()}
-                  </td>
-                  <td className="px-3 py-2 text-right">
                     {/* Per-row VAT %. Editable. Common values: 0 (software),
                         8 (preferential), 10 (default hardware). */}
                     <div className="inline-flex items-center gap-0.5 justify-end">
@@ -740,6 +655,15 @@ export function QuotationDetail() {
                         it.lineVAT ??
                         Math.round((it.lineTotal * (it.vatPct ?? 0)) / 100);
                       return `${vat.toLocaleString("vi-VN")} ${sym}`;
+                    })()}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium text-slate-900 whitespace-nowrap">
+                    {/* Thành tiền (chưa VAT) — last column. Rendered manually
+                        with the line's currency suffix instead of formatVND. */}
+                    {(() => {
+                      const cur = it.currency ?? q.currency ?? "VND";
+                      const sym = cur === "VND" ? "₫" : cur;
+                      return `${Math.round(it.lineTotal).toLocaleString("vi-VN")} ${sym}`;
                     })()}
                   </td>
                   <td className="px-3 py-2 print:hidden">
