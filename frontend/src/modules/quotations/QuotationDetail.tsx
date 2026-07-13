@@ -12,10 +12,17 @@ import {
   FileText,
   FileSpreadsheet,
   Building2,
+  Paperclip,
 } from "lucide-react";
 import { api, downloadFile } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import type { Account, Product, Quotation, QuotationLineItem } from "@/lib/types";
+import type {
+  Account,
+  Product,
+  Quotation,
+  QuotationAttachment,
+  QuotationLineItem,
+} from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
 import { Input, Textarea, Label } from "@/components/ui/Input";
@@ -31,6 +38,12 @@ const STATUS_COLOR: Record<string, string> = {
 
 function newLineId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function QuotationDetail() {
@@ -61,6 +74,13 @@ export function QuotationDetail() {
   const { data: q, isLoading } = useQuery({
     queryKey: ["quotation", id],
     queryFn: () => api.get<Quotation>(`/quotations/${id}`),
+    enabled: !!id,
+  });
+
+  // Source files this quotation was imported from (usually 0 or 1).
+  const { data: attachments } = useQuery({
+    queryKey: ["quotation-attachments", id],
+    queryFn: () => api.get<QuotationAttachment[]>(`/quotations/${id}/attachments`),
     enabled: !!id,
   });
 
@@ -415,6 +435,32 @@ export function QuotationDetail() {
                     className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
                   />
                 </label>
+                {/* Source files this quotation was imported from — click to
+                    re-open the original document. */}
+                {(attachments ?? []).map((att) => (
+                  <button
+                    key={att.id}
+                    onClick={async () => {
+                      try {
+                        await downloadFile(
+                          `/quotations/${q.id}/attachments/${att.id}`,
+                          att.fileName,
+                        );
+                      } catch (err) {
+                        toast.error(
+                          "Tải file gốc thất bại",
+                          err instanceof Error ? err.message : String(err),
+                        );
+                      }
+                    }}
+                    title={`File gốc đã import (${formatFileSize(att.size)}) — bấm để tải về`}
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 transition print:hidden"
+                  >
+                    <Paperclip className="h-3 w-3" />
+                    <span className="max-w-[220px] truncate">{att.fileName}</span>
+                    <span className="text-amber-600/80">{formatFileSize(att.size)}</span>
+                  </button>
+                ))}
               </div>
             </div>
             <div className="print:hidden">

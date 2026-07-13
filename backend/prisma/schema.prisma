@@ -481,3 +481,21 @@ model Quotation {
   @@index([ownerId, createdAt])
   @@index([accountId])
 }
+
+// Original file a quotation was imported from, kept verbatim so the rep can
+// re-open the source doc right on the quotation page. Bytes live in the DB
+// (imports are capped at 10 MB, internal traffic) in a SEPARATE table so
+// quotation list/detail queries never drag the blob along. No Prisma
+// relation on Quotation (its FKs are raw scalars by convention) — the
+// quotation DELETE handler cleans these up explicitly.
+model QuotationAttachment {
+  id          String   @id @default(cuid())
+  quotationId String
+  fileName    String
+  mimeType    String
+  size        Int // bytes
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  @@index([quotationId])
+}

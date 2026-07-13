@@ -484,6 +484,16 @@ export interface MarketSizing {
   createdAt: string;
 }
 
+// Original file a quotation was imported from (metadata only — the bytes
+// stream from GET /quotations/:id/attachments/:attId).
+export interface QuotationAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number; // bytes
+  createdAt: string;
+}
+
 export interface Quotation {
   id: string;
   number: string;

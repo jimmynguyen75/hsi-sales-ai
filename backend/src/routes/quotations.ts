@@ -350,7 +350,11 @@ quotationsRouter.post("/import", xlsxUpload.single("file"), async (req, res, nex
     const file = (req as Express.Request & { file?: Express.Multer.File }).file;
     if (!file) return fail(res, 400, "Thiếu file upload (field 'file').");
 
-    const parsed = await parseQuotationFile(file.buffer, file.originalname, userId);
+    // Multer (busboy) decodes the filename as latin1 — round-trip to UTF-8
+    // so Vietnamese file names don't come out garbled.
+    const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
+
+    const parsed = await parseQuotationFile(file.buffer, originalName, userId);
     if (parsed.items.length === 0) {
       return fail(
         res,
@@ -416,7 +420,7 @@ quotationsRouter.post("/import", xlsxUpload.single("file"), async (req, res, nex
     const created = await prisma.quotation.create({
       data: {
         number,
-        title: parsed.title || file.originalname.replace(/\.[^.]+$/, ""),
+        title: parsed.title || originalName.replace(/\.[^.]+$/, ""),
         accountId,
         dealId: bodyDealId,
         currency: "VND",
@@ -427,14 +431,81 @@ quotationsRouter.post("/import", xlsxUpload.single("file"), async (req, res, nex
         ownerId: userId,
       },
     });
+    // Keep the source file verbatim so the rep can re-open it from the
+    // quotation page later. Import still succeeds if this write fails.
+    let attachmentSaved = true;
+    try {
+      await prisma.quotationAttachment.create({
+        data: {
+          quotationId: created.id,
+          fileName: originalName,
+          mimeType: file.mimetype || "application/octet-stream",
+          size: file.size,
+          data: file.buffer,
+        },
+      });
+    } catch {
+      attachmentSaved = false;
+      parsed.warnings.push("Không lưu được file gốc đính kèm.");
+    }
     await logAudit(req, {
       action: "create",
       entity: "quotation",
       entityId: created.id,
-      summary: `Import quotation ${created.number} từ "${file.originalname}": ${items.length} items, tổng ${total.toLocaleString("vi-VN")}`,
+      summary: `Import quotation ${created.number} từ "${originalName}": ${items.length} items, tổng ${total.toLocaleString("vi-VN")}${attachmentSaved ? " (đã lưu file gốc)" : ""}`,
     });
 
     ok(res, { quotation: created, warnings: parsed.warnings });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/quotations/:id/attachments — metadata only (never the bytes).
+quotationsRouter.get("/:id/attachments", async (req, res, next) => {
+  try {
+    const userId = (req as AuthedRequest).userId;
+    const q = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, ownerId: true },
+    });
+    if (!q || q.ownerId !== userId) return fail(res, 404, "Not found");
+    const attachments = await prisma.quotationAttachment.findMany({
+      where: { quotationId: q.id },
+      select: { id: true, fileName: true, mimeType: true, size: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    ok(res, attachments);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/quotations/:id/attachments/:attId — stream the original file.
+// Content-Disposition inline: PDFs open right in the browser tab, Office
+// files fall back to a download.
+quotationsRouter.get("/:id/attachments/:attId", async (req, res, next) => {
+  try {
+    const userId = (req as AuthedRequest).userId;
+    const q = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, ownerId: true },
+    });
+    if (!q || q.ownerId !== userId) return fail(res, 404, "Not found");
+    const att = await prisma.quotationAttachment.findUnique({
+      where: { id: req.params.attId },
+    });
+    if (!att || att.quotationId !== q.id) return fail(res, 404, "Not found");
+    // ASCII fallback + RFC 5987 UTF-8 name so Vietnamese filenames survive.
+    const asciiName = att.fileName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "'");
+    const utf8Name = encodeURIComponent(att.fileName);
+    res.setHeader("Content-Type", att.mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`,
+    );
+    res.setHeader("Content-Length", att.data.length.toString());
+    res.end(Buffer.from(att.data));
   } catch (e) {
     next(e);
   }
@@ -568,6 +639,9 @@ quotationsRouter.delete("/:id", async (req, res, next) => {
     const existing = await prisma.quotation.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.ownerId !== userId)
       return res.status(404).json({ success: false, error: "Not found" });
+    // No Prisma relation between the two models — clean up attachments
+    // explicitly so the blobs don't orphan.
+    await prisma.quotationAttachment.deleteMany({ where: { quotationId: req.params.id } });
     await prisma.quotation.delete({ where: { id: req.params.id } });
     await logAudit(req, {
       action: "delete",
