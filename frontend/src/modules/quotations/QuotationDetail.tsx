@@ -550,68 +550,37 @@ export function QuotationDetail() {
                     <div className="text-[10px] text-slate-400">{it.unit ?? "unit"}</div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {/* Đơn giá + currency. Top row: unit price + currency
-                        dropdown. Sub row: tỷ giá input (only when currency
-                        != VND) so the line's VND-equivalent is unambiguous.
-                        Sub row also shows the converted VND amount for the
-                        rep's reference. */}
+                    {/* Đơn giá + per-row currency. Conversion to VND uses the
+                        ONE quotation-level exchange rate (totals card). */}
                     {(() => {
                       const rowCurrency = it.currency ?? q.currency ?? "VND";
-                      const rowRate = it.exchangeRate ?? null;
                       return (
-                        <>
-                          <div className="inline-flex items-center gap-1 justify-end">
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={it.unitPrice ? it.unitPrice.toLocaleString("vi-VN") : ""}
-                              onChange={(e) => {
-                                const cleaned = e.target.value.replace(/[^\d]/g, "");
-                                updateItem(it.id, {
-                                  unitPrice: cleaned ? parseInt(cleaned, 10) : 0,
-                                });
-                              }}
-                              placeholder="0"
-                              className="w-28 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
-                            />
-                            <select
-                              value={rowCurrency}
-                              onChange={(e) =>
-                                updateItem(it.id, {
-                                  currency: e.target.value,
-                                  // Switching back to VND clears any stale rate.
-                                  exchangeRate:
-                                    e.target.value === "VND" ? null : rowRate,
-                                })
-                              }
-                              className="text-[11px] bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
-                              title="Tiền tệ dòng"
-                            >
-                              <option value="VND">VND</option>
-                              <option value="USD">USD</option>
-                              <option value="EUR">EUR</option>
-                              <option value="JPY">JPY</option>
-                            </select>
-                          </div>
-                          {rowCurrency !== "VND" && (
-                            <div className="mt-0.5 inline-flex items-center justify-end gap-1 text-[10px] text-slate-500">
-                              <span>tỷ giá</span>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={rowRate ? rowRate.toLocaleString("vi-VN") : ""}
-                                onChange={(e) => {
-                                  const cleaned = e.target.value.replace(/[^\d]/g, "");
-                                  updateItem(it.id, {
-                                    exchangeRate: cleaned ? parseInt(cleaned, 10) : null,
-                                  });
-                                }}
-                                placeholder="—"
-                                className="w-20 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 print:bg-transparent"
-                              />
-                            </div>
-                          )}
-                        </>
+                        <div className="inline-flex items-center gap-1 justify-end">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={it.unitPrice ? it.unitPrice.toLocaleString("vi-VN") : ""}
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/[^\d]/g, "");
+                              updateItem(it.id, {
+                                unitPrice: cleaned ? parseInt(cleaned, 10) : 0,
+                              });
+                            }}
+                            placeholder="0"
+                            className="w-28 text-right tabular-nums bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
+                          />
+                          <select
+                            value={rowCurrency}
+                            onChange={(e) => updateItem(it.id, { currency: e.target.value })}
+                            className="text-[11px] bg-transparent focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 print:bg-transparent"
+                            title="Tiền tệ dòng"
+                          >
+                            <option value="VND">VND</option>
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                            <option value="JPY">JPY</option>
+                          </select>
+                        </div>
                       );
                     })()}
                   </td>
@@ -722,39 +691,51 @@ export function QuotationDetail() {
                 {q.total.toLocaleString("vi-VN")} ₫
               </span>
             </div>
-            {/* Currency breakdown — if the quotation has any non-VND lines,
-                show what's in each so the rep notices missing exchange rates. */}
+            {/* Shared exchange rate — ONE rate for every non-VND line. Only
+                shown when the quotation actually has foreign-currency lines. */}
             {(() => {
-              const byCurrency = new Map<string, { items: number; missingRate: boolean }>();
+              const byCurrency = new Map<string, number>();
               for (const it of localItems) {
                 const c = it.currency ?? q.currency ?? "VND";
-                const cur = byCurrency.get(c) ?? { items: 0, missingRate: false };
-                cur.items++;
-                if (c !== "VND" && (!it.exchangeRate || it.exchangeRate <= 0)) {
-                  cur.missingRate = true;
-                }
-                byCurrency.set(c, cur);
+                byCurrency.set(c, (byCurrency.get(c) ?? 0) + 1);
               }
               const nonVnd = Array.from(byCurrency.entries()).filter(([c]) => c !== "VND");
               if (nonVnd.length === 0) return null;
+              const missingRate = !q.exchangeRate || q.exchangeRate <= 0;
               return (
-                <div className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-xs space-y-1">
-                  <div className="text-slate-500">
-                    Báo giá có {nonVnd.length} loại tiền ngoại tệ — quy đổi sang VND
-                    theo tỷ giá từng dòng.
+                <div className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-xs space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-600 font-medium">
+                      Tỷ giá chung (1 ngoại tệ = ? VND)
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      defaultValue={
+                        q.exchangeRate ? q.exchangeRate.toLocaleString("vi-VN") : ""
+                      }
+                      key={`rate-${q.exchangeRate ?? "none"}`}
+                      onBlur={(e) => {
+                        const cleaned = e.target.value.replace(/[^\d]/g, "");
+                        const next = cleaned ? parseInt(cleaned, 10) : null;
+                        if (next !== (q.exchangeRate ?? null)) {
+                          saveMut.mutate({ exchangeRate: next });
+                        }
+                      }}
+                      placeholder="VD: 25.400"
+                      title="Áp dụng cho mọi dòng ngoại tệ khi quy đổi sang VND"
+                      className="w-24 text-right tabular-nums rounded border border-slate-200 bg-white px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
                   </div>
-                  {nonVnd.map(([c, info]) => (
-                    <div key={c} className="flex items-center justify-between">
-                      <span className="text-slate-600">
-                        {c}: {info.items} dòng
-                      </span>
-                      {info.missingRate && (
-                        <span className="text-rose-600 text-[11px]">
-                          ⚠ thiếu tỷ giá
-                        </span>
-                      )}
+                  <div className="text-slate-500">
+                    {nonVnd.map(([c, n]) => `${c}: ${n} dòng`).join(" · ")} — quy đổi
+                    sang VND theo tỷ giá chung.
+                  </div>
+                  {missingRate && (
+                    <div className="text-rose-600 text-[11px]">
+                      ⚠ Chưa nhập tỷ giá — tạm tính 1:1, tổng VND sẽ sai cho tới khi nhập.
                     </div>
-                  ))}
+                  )}
                 </div>
               );
             })()}

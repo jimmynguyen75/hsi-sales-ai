@@ -169,22 +169,30 @@ function recompute(
   _overallDiscount: number,
   legacyTax: number,
   defaultCurrency = "VND",
+  globalExchangeRate: number | null = null,
 ): { items: LineItem[]; subtotal: number; total: number } {
-  // Pricing model with per-row currency:
-  //   lineTotal (pre-VAT, line currency) = qty × unitPrice
-  //   lineVAT   (line currency)          = lineTotal × (vatPct / 100)
-  //   subtotal  (VND)                    = Σ lineTotal × exchangeRate_to_VND
-  //   total     (VND)                    = subtotal + Σ lineVAT × exchangeRate_to_VND
+  // Pricing model — per-row currency, ONE shared exchange rate:
+  //   lineTotal (line currency) = qty × unitPrice
+  //   lineVAT   (line currency) = lineTotal × (vatPct / 100)
+  //   subtotal  (VND)           = Σ lineTotal × rate(line currency)
+  //   total     (VND)           = subtotal + Σ lineVAT × rate(line currency)
   //
-  // Each line carries its own currency + exchangeRate so vendor quotes
-  // in USD / EUR / JPY can sit alongside VND lines. Aggregates always
-  // roll up into VND so the customer sees a single Tổng cộng.
+  // rate(currency):
+  //   VND → 1
+  //   non-VND → quotation.exchangeRate (single field, shared across lines).
+  //             Missing rate falls back to 1 so the math doesn't NaN, but
+  //             the UI shows a warning until the rep enters one.
   //
   // Legacy migration on save:
   // - Line "% CK" discount folds into unitPrice and resets discount to 0.
   // - Quotation-level tax migrates to per-row vatPct on first save.
-  // - Lines missing currency inherit the quotation's defaultCurrency.
   const defaultVat = legacyTax || 10;
+  const rateFor = (cur: string) =>
+    cur === "VND"
+      ? 1
+      : globalExchangeRate && globalExchangeRate > 0
+        ? globalExchangeRate
+        : 1;
   const recalced = items.map((it) => {
     const lineDiscount = it.discount ?? 0;
     const baseUnit =
@@ -196,33 +204,30 @@ function recompute(
     const vatPct = it.vatPct ?? defaultVat;
     const lineVAT = Math.round(lineTotal * (vatPct / 100));
     const currency = it.currency ?? defaultCurrency;
-    // VND lines always have rate 1; foreign-currency lines need an explicit
-    // rate to roll into the VND total. Missing rate falls back to 1 so we
-    // never NaN out, even if it makes the total look "off" until the rep
-    // sets a rate.
-    const exchangeRate =
-      currency === "VND" ? 1 : it.exchangeRate && it.exchangeRate > 0 ? it.exchangeRate : 1;
     return {
       ...it,
       unitPrice: baseUnit,
       margin,
       vatPct,
       currency,
-      exchangeRate: currency === "VND" ? null : exchangeRate,
+      // Per-row exchangeRate is no longer the source of truth — single
+      // quotation-level rate drives the conversion. Clear stale per-row
+      // values on save so the data doesn't drift.
+      exchangeRate: null,
       discount: 0,
       lineTotal,
       lineVAT,
     };
   });
-  // Aggregate in VND using each line's own exchange rate.
-  const subtotal = recalced.reduce((s, it) => {
-    const rate = it.currency === "VND" ? 1 : it.exchangeRate ?? 1;
-    return s + it.lineTotal * rate;
-  }, 0);
-  const totalVAT = recalced.reduce((s, it) => {
-    const rate = it.currency === "VND" ? 1 : it.exchangeRate ?? 1;
-    return s + (it.lineVAT ?? 0) * rate;
-  }, 0);
+  // Aggregate in VND using the shared exchange rate.
+  const subtotal = recalced.reduce(
+    (s, it) => s + it.lineTotal * rateFor(it.currency ?? "VND"),
+    0,
+  );
+  const totalVAT = recalced.reduce(
+    (s, it) => s + (it.lineVAT ?? 0) * rateFor(it.currency ?? "VND"),
+    0,
+  );
   const total = subtotal + totalVAT;
   return { items: recalced, subtotal: Math.round(subtotal), total };
 }
@@ -499,8 +504,17 @@ quotationsRouter.put("/:id", async (req, res, next) => {
 
     const disc = input.discount ?? existing.discount;
     const tax = input.tax ?? existing.tax;
+    // The single quotation-level exchange rate drives every non-VND line,
+    // so a rate change alone must retotal the quotation too.
+    const gRate =
+      input.exchangeRate !== undefined ? input.exchangeRate : existing.exchangeRate;
 
-    if (input.items !== undefined || input.discount !== undefined || input.tax !== undefined) {
+    if (
+      input.items !== undefined ||
+      input.discount !== undefined ||
+      input.tax !== undefined ||
+      input.exchangeRate !== undefined
+    ) {
       const rawItems = (input.items ?? (existing.items as unknown as LineItem[])).map((it) => ({
         id: it.id ?? lid(),
         productId: it.productId ?? null,
@@ -520,7 +534,7 @@ quotationsRouter.put("/:id", async (req, res, next) => {
       }));
       const defaultCurrency =
         input.currency ?? existing.currency ?? "VND";
-      const { items, subtotal, total } = recompute(rawItems, disc, tax, defaultCurrency);
+      const { items, subtotal, total } = recompute(rawItems, disc, tax, defaultCurrency, gRate);
       data.items = items as unknown as Prisma.InputJsonValue;
       data.subtotal = subtotal;
       data.total = total;
@@ -602,7 +616,13 @@ quotationsRouter.post("/:id/ai/suggest", async (req, res, next) => {
     // Merge (append) rather than replace
     const prev = (existing.items as unknown as LineItem[]) ?? [];
     const merged = [...prev, ...newItems];
-    const { items, subtotal, total } = recompute(merged, existing.discount, existing.tax);
+    const { items, subtotal, total } = recompute(
+      merged,
+      existing.discount,
+      existing.tax,
+      existing.currency ?? "VND",
+      existing.exchangeRate,
+    );
 
     const updated = await prisma.quotation.update({
       where: { id: req.params.id },
