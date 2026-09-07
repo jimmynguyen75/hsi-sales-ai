@@ -119,7 +119,9 @@ export function AccountDetail() {
   const aiError = summaryMut.error || nextActionMut.error || healthMut.error;
   const canEditAccount = user?.role === "admin" || account.ownerId === user?.id;
   const canDeleteAccount = user?.role === "admin";
-  const canDeleteDeal = user?.role === "admin";
+  // Deals: owner or admin, matching DELETE /deals/:id on the backend.
+  const canDeleteDeal = (d: Deal) =>
+    user?.role === "admin" || d.ownerId === user?.id || d.owner?.id === user?.id;
 
   return (
     <div className="flex h-full">
@@ -479,7 +481,7 @@ export function AccountDetail() {
                         <div>{d.vendor ?? "—"}</div>
                       </div>
                       <div>
-                        <div className="text-slate-400">Expected close</div>
+                        <div className="text-slate-400">Dự kiến ký HĐ</div>
                         <div>{formatDate(d.expectedClose)}</div>
                       </div>
                     </div>
@@ -487,9 +489,14 @@ export function AccountDetail() {
                       <RowActions
                         onEdit={() => setDealDialog({ open: true, editing: d })}
                         onDelete={
-                          canDeleteDeal
+                          canDeleteDeal(d)
                             ? () => {
-                                if (confirm(`Xoá deal "${d.title}"?`)) delDeal.mutate(d.id);
+                                if (
+                                  confirm(
+                                    `Xoá deal "${d.title}"?\n\nHành động này không hoàn tác được.`,
+                                  )
+                                )
+                                  delDeal.mutate(d.id);
                               }
                             : undefined
                         }

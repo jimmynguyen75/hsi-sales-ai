@@ -72,8 +72,15 @@ const VENDORS = ["HPE", "Dell", "IBM", "Palo Alto", "CrowdStrike", "Microsoft", 
 export function PipelineView() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canDelete = user?.role === "admin";
   const isAdmin = user?.role === "admin";
+  // Owner or admin, matching the backend rule on DELETE /deals/:id.
+  const canDelete = (d: Deal) =>
+    isAdmin || d.ownerId === user?.id || d.owner?.id === user?.id;
+  const deleteDeal = (d: Deal) => {
+    if (confirm(`Xoá deal "${d.title}"?\n\nHành động này không hoàn tác được.`)) {
+      delMut.mutate(d.id);
+    }
+  };
   const [vendor, setVendor] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [editDeal, setEditDeal] = useState<Deal | null>(null);
@@ -387,9 +394,8 @@ export function PipelineView() {
           showOwner={isAdmin}
           onEdit={(d) => setEditDeal(d)}
           onChangeStage={(id, newStage) => moveMut.mutate({ id, stage: newStage })}
-          onDelete={canDelete ? (d) => {
-            if (confirm(`Xoá deal "${d.title}"?`)) delMut.mutate(d.id);
-          } : undefined}
+          onDelete={(d) => (canDelete(d) ? deleteDeal(d) : undefined)}
+          canDelete={canDelete}
         />
       ) : (
       <div className="overflow-x-auto pb-2">
@@ -402,13 +408,8 @@ export function PipelineView() {
               showOwner={isAdmin}
               onChangeStage={(id, newStage) => moveMut.mutate({ id, stage: newStage })}
               onEdit={(d) => setEditDeal(d)}
-              onDelete={
-                canDelete
-                  ? (d) => {
-                      if (confirm(`Xoá deal "${d.title}"?`)) delMut.mutate(d.id);
-                    }
-                  : undefined
-              }
+              onDelete={deleteDeal}
+              canDelete={canDelete}
             />
           ))}
         </div>
@@ -448,12 +449,15 @@ function DealListView({
   onEdit,
   onChangeStage,
   onDelete,
+  canDelete,
 }: {
   deals: Deal[];
   showOwner: boolean;
   onEdit: (d: Deal) => void;
   onChangeStage: (id: string, newStage: StageKey) => void;
   onDelete?: (d: Deal) => void;
+  /** Per-deal permission check; omitted means every row may be deleted. */
+  canDelete?: (d: Deal) => boolean;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -548,7 +552,7 @@ function DealListView({
               <SortHead k="caseCode">Mã vụ việc</SortHead>
               <SortHead k="vendor">Vendor</SortHead>
               <SortHead k="value" right>Giá trị</SortHead>
-              <SortHead k="expectedClose">Ký HĐ</SortHead>
+              <SortHead k="expectedClose">Dự kiến ký HĐ</SortHead>
               {showOwner && (
                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Sales</th>
               )}
@@ -636,11 +640,11 @@ function DealListView({
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    {onDelete && (
+                    {onDelete && (!canDelete || canDelete(d)) && (
                       <button
                         onClick={() => onDelete(d)}
                         className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                        title="Xoá"
+                        title="Xoá deal"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -685,6 +689,7 @@ function KanbanColumn({
   onChangeStage,
   onEdit,
   onDelete,
+  canDelete,
 }: {
   stage: { key: StageKey; label: string; hint?: string };
   deals: Deal[];
@@ -692,6 +697,7 @@ function KanbanColumn({
   onChangeStage: (id: string, newStage: StageKey) => void;
   onEdit: (d: Deal) => void;
   onDelete?: (d: Deal) => void;
+  canDelete?: (d: Deal) => boolean;
 }) {
   // Sort deals by value desc — highest-priority ones stay above the fold
   // when a column has 15+ cards (e.g. current Đỏ column with 16 items).
@@ -755,7 +761,9 @@ function KanbanColumn({
               showOwner={showOwner}
               onChangeStage={onChangeStage}
               onEdit={() => onEdit(d)}
-              onDelete={onDelete ? () => onDelete(d) : undefined}
+              onDelete={
+                onDelete && (!canDelete || canDelete(d)) ? () => onDelete(d) : undefined
+              }
             />
           ))
         )}

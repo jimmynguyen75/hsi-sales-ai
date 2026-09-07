@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { ok, fail } from "../lib/response.js";
 import type { AuthedRequest } from "../middleware/auth.js";
-import { requireRole, canViewAll } from "../middleware/rbac.js";
+import { canViewAll } from "../middleware/rbac.js";
 import { logAudit, diffSummary } from "../services/audit.js";
 
 export const dealsRouter = Router();
@@ -166,10 +166,16 @@ dealsRouter.put("/:id", async (req, res, next) => {
   }
 });
 
-// Delete: admin only (deals track revenue — sales shouldn't nuke own pipeline).
-dealsRouter.delete<{ id: string }>("/:id", requireRole("admin"), async (req, res, next) => {
+// Delete: owner or admin — same rule as PUT. A rep owns their pipeline and
+// needs to clear out opportunities that died or were entered by mistake;
+// every deletion is recorded in the audit log.
+dealsRouter.delete<{ id: string }>("/:id", async (req, res, next) => {
   try {
     const existing = await prisma.deal.findUnique({ where: { id: req.params.id } });
+    if (!existing) return fail(res, 404, "Not found");
+    if (!canViewAll(req.userRole) && existing.ownerId !== req.userId) {
+      return fail(res, 403, "Bạn không có quyền xoá deal này.");
+    }
     await prisma.deal.delete({ where: { id: req.params.id } });
     if (existing) {
       await logAudit(req, {

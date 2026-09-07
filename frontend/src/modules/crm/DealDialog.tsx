@@ -226,7 +226,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
               />
             </div>
             <div>
-              <Label>Expected close</Label>
+              <Label>Dự kiến ký HĐ</Label>
               <Input
                 type="date"
                 value={expectedClose}
