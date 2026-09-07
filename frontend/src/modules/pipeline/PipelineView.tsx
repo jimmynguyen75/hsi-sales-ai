@@ -146,7 +146,7 @@ export function PipelineView() {
     const matchesSearch = (d: Deal) => {
       if (!q) return true;
       const haystack =
-        `${d.title} ${d.account?.companyName ?? ""} ${d.vendor ?? ""}`.toLowerCase();
+        `${d.title} ${d.caseCode ?? ""} ${d.account?.companyName ?? ""} ${d.vendor ?? ""}`.toLowerCase();
       return haystack.includes(q);
     };
     return (deals ?? []).filter(
@@ -260,7 +260,7 @@ export function PipelineView() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm khách hàng, dự án, vendor..."
+              placeholder="Tìm khách hàng, dự án, mã vụ việc, vendor..."
               className="h-8 pl-8 text-xs"
             />
           </div>
@@ -432,7 +432,14 @@ export function PipelineView() {
  * currently) has ~15+ cards. Every row is 1 deal; users sort/scan the
  * whole pipeline in a single view.
  */
-type SortKey = "stage" | "account" | "title" | "value" | "expectedClose" | "vendor";
+type SortKey =
+  | "stage"
+  | "account"
+  | "title"
+  | "caseCode"
+  | "value"
+  | "expectedClose"
+  | "vendor";
 type SortDir = "asc" | "desc";
 
 function DealListView({
@@ -475,6 +482,10 @@ function DealListView({
         case "title":
           av = a.title;
           bv = b.title;
+          break;
+        case "caseCode":
+          av = a.caseCode ?? "";
+          bv = b.caseCode ?? "";
           break;
         case "value":
           av = a.value ?? 0;
@@ -534,6 +545,7 @@ function DealListView({
               <SortHead k="stage">Màu</SortHead>
               <SortHead k="account">Khách hàng</SortHead>
               <SortHead k="title">Dự án</SortHead>
+              <SortHead k="caseCode">Mã vụ việc</SortHead>
               <SortHead k="vendor">Vendor</SortHead>
               <SortHead k="value" right>Giá trị</SortHead>
               <SortHead k="expectedClose">Ký HĐ</SortHead>
@@ -546,7 +558,7 @@ function DealListView({
           <tbody className="divide-y divide-slate-100">
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={showOwner ? 8 : 7} className="px-3 py-12 text-center text-sm text-slate-400">
+                <td colSpan={showOwner ? 9 : 8} className="px-3 py-12 text-center text-sm text-slate-400">
                   Không có deal nào khớp bộ lọc.
                 </td>
               </tr>
@@ -586,6 +598,15 @@ function DealListView({
                 </td>
                 <td className="px-3 py-2 text-slate-700">
                   <span className="line-clamp-1" title={d.title}>{d.title}</span>
+                </td>
+                <td className="px-3 py-2">
+                  {d.caseCode ? (
+                    <span className="font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                      {d.caseCode}
+                    </span>
+                  ) : (
+                    <span className="text-slate-300 text-xs">—</span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-slate-600 text-xs">
                   {d.vendor ?? "—"}

@@ -57,6 +57,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
   // Owner reassignment is admin-only and only relevant in edit mode.
   const canReassign = me?.role === "admin" && editing;
   const [title, setTitle] = useState("");
+  const [caseCode, setCaseCode] = useState("");
   const [stage, setStage] = useState("red");
   const [value, setValue] = useState("");
   const [grossProfit, setGrossProfit] = useState("");
@@ -78,6 +79,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!open) return;
     setTitle(deal?.title ?? "");
+    setCaseCode(deal?.caseCode ?? "");
     // Legacy stages get mapped so old deals load with a valid color option.
     setStage(LEGACY_MAP[deal?.stage ?? ""] ?? deal?.stage ?? "red");
     setValue(deal?.value != null ? String(deal.value) : "");
@@ -99,6 +101,7 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
       const isoClose = expectedClose ? new Date(expectedClose).toISOString() : null;
       const payload: Record<string, unknown> = {
         title: title.trim(),
+        caseCode: caseCode.trim() || null,
         stage,
         value: value ? Number(value) : null,
         grossProfit: grossProfit ? Number(grossProfit) : null,
@@ -145,6 +148,14 @@ export function DealDialog({ open, accountId, deal, onClose, onSaved }: Props) {
               placeholder="VD: Acme — DC Refresh 2026"
               required
               autoFocus
+            />
+          </div>
+          <div>
+            <Label>Mã vụ việc (OPP)</Label>
+            <Input
+              value={caseCode}
+              onChange={(e) => setCaseCode(e.target.value)}
+              placeholder="VD: HPT_14876 — để trống nếu chưa có"
             />
           </div>
           <div className="grid grid-cols-2 gap-2">

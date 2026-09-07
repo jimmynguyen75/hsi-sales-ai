@@ -98,6 +98,11 @@ model Contact {
 
 model Deal {
   id            String    @id @default(cuid())
+  // "Mã vụ việc" — the opportunity code from HPT's OPP system (e.g.
+  // HPT_14876). Nullable because deals created in-app have no code yet;
+  // when present it's the stable identity used to re-sync a deal from OPP
+  // without creating duplicates.
+  caseCode      String?   @unique
   title         String
   value         Float?
   // Gross profit (lãi gộp) for this deal in VND. Imported from the pipeline

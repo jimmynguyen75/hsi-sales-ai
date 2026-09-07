@@ -45,6 +45,7 @@ export interface Contact {
 
 export interface Deal {
   id: string;
+  caseCode: string | null; // Mã vụ việc từ hệ thống OPP, VD: HPT_14876
   title: string;
   value: number | null;
   grossProfit: number | null; // Lãi gộp (LG) dự kiến của deal

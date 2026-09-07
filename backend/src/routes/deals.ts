@@ -38,6 +38,8 @@ dealsRouter.get("/", async (req, res, next) => {
 
 const dealSchema = z.object({
   title: z.string().min(1),
+  // "Mã vụ việc" from HPT's OPP system, e.g. HPT_14876. Unique when set.
+  caseCode: z.string().max(64).optional().nullable(),
   value: z.number().optional().nullable(),
   grossProfit: z.number().optional().nullable(),
   // Deal stage = HPT's OPP color convention (5 buckets):
@@ -72,10 +74,26 @@ const dealSchema = z.object({
   ownerId: z.string().optional(),
 });
 
+// Mã vụ việc is unique across all deals — check before writing so a clash
+// reads as a 400 with the offending deal named, not a Prisma 500.
+async function caseCodeTaken(caseCode: string, exceptDealId?: string) {
+  const other = await prisma.deal.findUnique({
+    where: { caseCode },
+    select: { id: true, title: true },
+  });
+  return other && other.id !== exceptDealId ? other : null;
+}
+
 dealsRouter.post("/", async (req, res, next) => {
   try {
     const input = dealSchema.parse(req.body);
     const userId = (req as AuthedRequest).userId;
+    if (input.caseCode) {
+      const clash = await caseCodeTaken(input.caseCode);
+      if (clash) {
+        return fail(res, 400, `Mã vụ việc "${input.caseCode}" đã dùng cho deal "${clash.title}".`);
+      }
+    }
     const deal = await prisma.deal.create({
       data: {
         ...input,
@@ -104,6 +122,13 @@ dealsRouter.put("/:id", async (req, res, next) => {
     }
     const input = dealSchema.partial().parse(req.body);
 
+    if (input.caseCode) {
+      const clash = await caseCodeTaken(input.caseCode, existing.id);
+      if (clash) {
+        return fail(res, 400, `Mã vụ việc "${input.caseCode}" đã dùng cho deal "${clash.title}".`);
+      }
+    }
+
     // Reassignment guard: only admin can change ownerId. A sales rep
     // transferring their own deal away from themselves would break the
     // ownership invariant the /deals list relies on.
@@ -126,7 +151,7 @@ dealsRouter.put("/:id", async (req, res, next) => {
     const changed = diffSummary(
       existing as unknown as Record<string, unknown>,
       deal as unknown as Record<string, unknown>,
-      ["title", "stage", "value", "grossProfit", "probability", "vendor", "expectedClose"],
+      ["title", "caseCode", "stage", "value", "grossProfit", "probability", "vendor", "expectedClose"],
     );
     const isStatus = input.stage && input.stage !== existing.stage;
     // Reassign gets its own audit action so it's easy to spot in the log.
