@@ -594,14 +594,14 @@ function DealListView({
                       className="text-slate-800 hover:text-brand-600 font-medium"
                       title={d.account.companyName}
                     >
-                      <span className="line-clamp-1">{d.account.companyName}</span>
+                      <span>{d.account.companyName}</span>
                     </Link>
                   ) : (
                     <span className="text-slate-400 italic">— chưa gắn —</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-slate-700">
-                  <span className="line-clamp-1" title={d.title}>{d.title}</span>
+                  <span title={d.title}>{d.title}</span>
                 </td>
                 <td className="px-3 py-2">
                   {d.caseCode ? (

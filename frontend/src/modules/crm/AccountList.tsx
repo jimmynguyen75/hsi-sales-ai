@@ -27,6 +27,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { CompanyAvatar } from "@/components/CompanyAvatar";
 import { cn } from "@/lib/cn";
 import { relativeTime, healthColor, healthLabel } from "@/lib/format";
 import { AccountDialog } from "./AccountDialog";
@@ -34,24 +35,6 @@ import { BulkImportDialog } from "@/components/BulkImportDialog";
 
 type SortKey = "companyName" | "healthScore" | "updatedAt" | "deals";
 type SortDir = "asc" | "desc";
-
-// Deterministic pastel for the company avatar — hash the name into one of
-// eight tailwind color pairs so the same account always gets the same hue.
-const AVATAR_COLORS = [
-  "bg-blue-100 text-blue-700",
-  "bg-emerald-100 text-emerald-700",
-  "bg-violet-100 text-violet-700",
-  "bg-amber-100 text-amber-700",
-  "bg-rose-100 text-rose-700",
-  "bg-cyan-100 text-cyan-700",
-  "bg-indigo-100 text-indigo-700",
-  "bg-teal-100 text-teal-700",
-];
-function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
-}
 
 const STAT_TONES: Record<string, { card: string; icon: string; value: string }> = {
   blue: {
@@ -333,16 +316,13 @@ export function AccountList() {
                   <tr key={a.id} className="hover:bg-blue-50/40 transition group">
                     <td className="px-4 py-3">
                       <Link to={`/crm/${a.id}`} className="flex items-center gap-3">
-                        <span
-                          className={cn(
-                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold uppercase",
-                            avatarColor(a.companyName),
-                          )}
-                        >
-                          {a.companyName.charAt(0)}
-                        </span>
+                        <CompanyAvatar
+                          name={a.companyName}
+                          logoUrl={a.logoUrl}
+                          className="h-9 w-9 rounded-lg"
+                        />
                         <span className="min-w-0">
-                          <span className="block font-medium text-slate-900 group-hover:text-brand-700 transition truncate max-w-[280px]">
+                          <span className="block font-medium text-slate-900 group-hover:text-brand-700 transition">
                             {a.companyName}
                           </span>
                           {a.size && (

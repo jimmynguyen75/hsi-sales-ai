@@ -63,6 +63,9 @@ model Account {
   industry      String?
   size          String?  // SMB | mid-market | enterprise
   website       String?
+  // Company logo shown as the account avatar. Any image URL (or a data:
+  // URI); null falls back to a coloured initials chip in the UI.
+  logoUrl       String?
   address       String?
   notes         String?  @db.Text
   healthScore   Int?     @default(50)

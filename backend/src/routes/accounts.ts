@@ -93,6 +93,8 @@ const createSchema = z.object({
   industry: z.string().optional(),
   size: z.string().optional(),
   website: z.string().optional(),
+  // Image URL (or data: URI) used as the account avatar.
+  logoUrl: z.string().optional().nullable(),
   address: z.string().optional(),
   notes: z.string().optional(),
   // Accepted on update only; reassignment is admin-only (enforced in handler).

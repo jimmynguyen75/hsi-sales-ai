@@ -22,6 +22,7 @@ import type { Account, Activity as ActivityT, Contact, Deal, HealthResult } from
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, Badge } from "@/components/ui/Card";
+import { CompanyAvatar } from "@/components/CompanyAvatar";
 import { formatVND, formatDate, relativeTime, healthColor, healthLabel, stageColor } from "@/lib/format";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -133,7 +134,14 @@ export function AccountDetail() {
         {/* Header */}
         <Card>
           <CardBody className="flex items-start justify-between gap-4">
-            <div>
+            <div className="flex items-start gap-4">
+              <CompanyAvatar
+                name={account.companyName}
+                logoUrl={account.logoUrl}
+                className="h-14 w-14 rounded-xl"
+                textClassName="text-lg"
+              />
+              <div>
               <h1 className="text-2xl font-semibold">{account.companyName}</h1>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 {account.industry && <Badge className="bg-slate-100 text-slate-700">{account.industry}</Badge>}
@@ -162,6 +170,7 @@ export function AccountDetail() {
               {account.notes && (
                 <p className="mt-3 text-sm text-slate-700 max-w-2xl">{account.notes}</p>
               )}
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <HealthGauge score={account.healthScore} />

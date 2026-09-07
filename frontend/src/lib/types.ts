@@ -15,6 +15,8 @@ export interface Account {
   industry: string | null;
   size: string | null;
   website: string | null;
+  /** Logo hiển thị làm avatar khách hàng; null thì dùng chữ viết tắt. */
+  logoUrl: string | null;
   address: string | null;
   notes: string | null;
   healthScore: number | null;

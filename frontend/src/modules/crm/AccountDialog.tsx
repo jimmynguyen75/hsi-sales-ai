@@ -14,6 +14,7 @@ import type { Account, User } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Textarea } from "@/components/ui/Input";
+import { CompanyAvatar } from "@/components/CompanyAvatar";
 
 interface Props {
   open: boolean;
@@ -29,6 +30,7 @@ const EMPTY = {
   industry: "",
   size: "",
   website: "",
+  logoUrl: "",
   address: "",
   notes: "",
 };
@@ -58,6 +60,7 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
         industry: account.industry ?? "",
         size: account.size ?? "",
         website: account.website ?? "",
+        logoUrl: account.logoUrl ?? "",
         address: account.address ?? "",
         notes: account.notes ?? "",
       });
@@ -165,6 +168,21 @@ export function AccountDialog({ open, account, onClose, onSaved }: Props) {
               onChange={(e) => setForm({ ...form, website: e.target.value })}
               placeholder="https://..."
             />
+          </div>
+          <div>
+            <Label>Logo (URL ảnh)</Label>
+            <div className="flex items-center gap-2">
+              <CompanyAvatar
+                name={form.companyName || "?"}
+                logoUrl={form.logoUrl || null}
+                className="h-9 w-9 rounded-lg"
+              />
+              <Input
+                value={form.logoUrl}
+                onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+                placeholder="https://.../logo.png — để trống thì dùng chữ viết tắt"
+              />
+            </div>
           </div>
           <div>
             <Label>Địa chỉ</Label>
