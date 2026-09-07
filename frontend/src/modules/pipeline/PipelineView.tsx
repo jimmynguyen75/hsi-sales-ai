@@ -10,8 +10,8 @@
  * (admin only, matching backend RBAC). The dialog is hoisted to this
  * component so one mount handles every card.
  *
- * Top bar: total pipeline value (sum of open deals), forecast (Vàng + Hồng)
- * (sum of value × probability/100 for open deals), plus vendor/owner filters.
+ * Top bar: total pipeline value (sum of open deals), forecast (OPP Vàng +
+ * OPP Xanh, the company rule), plus vendor/owner filters.
  * "Open" = everything except closed_won / closed_lost.
  */
 import { useEffect, useMemo, useState } from "react";
@@ -520,6 +520,7 @@ function DealListView({
   }
 
   const totalValue = sorted.reduce((s, d) => s + (d.value ?? 0), 0);
+  const totalGrossProfit = sorted.reduce((s, d) => s + (d.grossProfit ?? 0), 0);
 
   const SortHead = ({ k, children, right }: { k: SortKey; children: React.ReactNode; right?: boolean }) => (
     <th
@@ -617,10 +618,21 @@ function DealListView({
                 </td>
                 <td className="px-3 py-2 text-right font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                   {formatVND(d.value)}
-                  {d.probability != null && (
-                    <div className="text-[10px] text-slate-400 font-normal">
-                      {d.probability}%
+                  {/* Gross profit under the deal value — the number reps
+                      actually steer by. Percent-of-value in the tooltip. */}
+                  {d.grossProfit != null && d.grossProfit > 0 ? (
+                    <div
+                      className="text-[11px] font-medium text-emerald-700"
+                      title={
+                        d.value
+                          ? `Lãi gộp ${((d.grossProfit / d.value) * 100).toFixed(1)}% giá trị`
+                          : "Lãi gộp"
+                      }
+                    >
+                      LG {formatVND(d.grossProfit)}
                     </div>
+                  ) : (
+                    <div className="text-[11px] font-normal text-slate-300">LG —</div>
                   )}
                 </td>
                 <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">
@@ -666,11 +678,16 @@ function DealListView({
           {sorted.length > 0 && (
             <tfoot className="bg-slate-50 border-t border-slate-200 sticky bottom-0">
               <tr>
-                <td colSpan={4} className="px-3 py-2 text-xs text-slate-600">
+                {/* Spans Màu · Khách hàng · Dự án · Mã vụ việc · Vendor so the
+                    total lines up under the Giá trị column. */}
+                <td colSpan={5} className="px-3 py-2 text-xs text-slate-600">
                   <span className="font-medium">{sorted.length} deals</span> hiển thị
                 </td>
                 <td className="px-3 py-2 text-right font-bold text-slate-900 tabular-nums">
                   {formatVND(totalValue)}
+                  <div className="text-[11px] font-medium text-emerald-700">
+                    LG {formatVND(totalGrossProfit)}
+                  </div>
                 </td>
                 <td colSpan={showOwner ? 3 : 2}></td>
               </tr>
@@ -834,10 +851,17 @@ function DealCard({
         </div>
       </div>
 
-      {/* Row 2: value + probability + vendor + expected close (single line) */}
+      {/* Row 2: value (+ gross profit) + vendor + expected close */}
       <div className="mt-1 flex items-center justify-between gap-1.5">
-        <div className="text-[13px] font-semibold text-slate-900 tabular-nums truncate">
-          {formatVND(deal.value)}
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-slate-900 tabular-nums truncate">
+            {formatVND(deal.value)}
+          </div>
+          {deal.grossProfit != null && deal.grossProfit > 0 && (
+            <div className="text-[10px] font-medium text-emerald-700 tabular-nums truncate">
+              LG {formatVND(deal.grossProfit)}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 text-[10px] text-slate-500 shrink-0">
           {deal.vendor && (
