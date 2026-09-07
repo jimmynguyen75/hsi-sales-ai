@@ -577,6 +577,10 @@ function DealListView({
                     value={normalizeStage(d.stage)}
                     onChange={(e) => onChangeStage(d.id, e.target.value as StageKey)}
                     onClick={(e) => e.stopPropagation()}
+                    // Scrolling the table with the pointer over a focused
+                    // select silently reassigns the deal's colour. Drop focus
+                    // on wheel so a scroll can never change a stage.
+                    onWheel={(e) => e.currentTarget.blur()}
                     className={cn(
                       "text-[11px] rounded-md border px-1.5 py-0.5 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500",
                       stageColor(d.stage),
@@ -618,8 +622,8 @@ function DealListView({
                 </td>
                 <td className="px-3 py-2 text-right font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                   {formatVND(d.value)}
-                  {/* Gross profit under the deal value — the number reps
-                      actually steer by. Percent-of-value in the tooltip. */}
+                  {/* Gross profit under the deal value — the green line. No
+                      label: the colour carries it, percent is in the tooltip. */}
                   {d.grossProfit != null && d.grossProfit > 0 ? (
                     <div
                       className="text-[11px] font-medium text-emerald-700"
@@ -629,10 +633,12 @@ function DealListView({
                           : "Lãi gộp"
                       }
                     >
-                      LG {formatVND(d.grossProfit)}
+                      {formatVND(d.grossProfit)}
                     </div>
                   ) : (
-                    <div className="text-[11px] font-normal text-slate-300">LG —</div>
+                    <div className="text-[11px] font-normal text-slate-300" title="Chưa có lãi gộp">
+                      —
+                    </div>
                   )}
                 </td>
                 <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">
@@ -685,8 +691,11 @@ function DealListView({
                 </td>
                 <td className="px-3 py-2 text-right font-bold text-slate-900 tabular-nums">
                   {formatVND(totalValue)}
-                  <div className="text-[11px] font-medium text-emerald-700">
-                    LG {formatVND(totalGrossProfit)}
+                  <div
+                    className="text-[11px] font-medium text-emerald-700"
+                    title="Tổng lãi gộp"
+                  >
+                    {formatVND(totalGrossProfit)}
                   </div>
                 </td>
                 <td colSpan={showOwner ? 3 : 2}></td>
@@ -858,8 +867,11 @@ function DealCard({
             {formatVND(deal.value)}
           </div>
           {deal.grossProfit != null && deal.grossProfit > 0 && (
-            <div className="text-[10px] font-medium text-emerald-700 tabular-nums truncate">
-              LG {formatVND(deal.grossProfit)}
+            <div
+              className="text-[10px] font-medium text-emerald-700 tabular-nums truncate"
+              title="Lãi gộp"
+            >
+              {formatVND(deal.grossProfit)}
             </div>
           )}
         </div>
@@ -892,6 +904,9 @@ function DealCard({
           onChange={(e) => onChangeStage(deal.id, e.target.value as StageKey)}
           className="w-full text-[10.5px] rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500"
           onClick={(e) => e.stopPropagation()}
+          // Same guard as the list view: a wheel scroll must never reassign
+          // the deal's colour.
+          onWheel={(e) => e.currentTarget.blur()}
         >
           {STAGES.map((s) => (
             <option key={s.key} value={s.key}>
